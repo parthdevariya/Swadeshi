@@ -41,7 +41,26 @@ When the brand is foreign-owned, the app suggests Indian-owned alternatives in t
 - 🔎 Brand search with autocomplete
 - 🕘 Recent-checks history (stored only on the device)
 - 📴 Works offline for brand search and barcode-prefix checks
+- 📲 Installable app with an install popup (Android one-tap install, iPhone step-by-step)
 - 🌗 Light and dark mode
+
+## Use it on your phone
+
+The app is published with GitHub Pages: open the link on your phone and an **install popup** appears.
+
+- **Android (Chrome, Edge, Samsung Internet):** tap **Install** — it's added to the home screen and app drawer like a normal app.
+- **iPhone / iPad:** the popup shows the two steps — **Share** → **Add to Home Screen**.
+- Missed the popup? Tap **⬇️ Install app** at the top. "Not now" hides the popup for 3 days.
+
+Once installed it opens full-screen, straight to the scanner, and works offline (brand list, saved brands, history). Long-press the icon on Android for a **Scan a product** shortcut.
+
+### Publishing (one-time setup)
+
+1. On GitHub: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+2. Push to the default branch (or run the **deploy** workflow from the Actions tab).
+3. The app goes live at `https://<owner>.github.io/<repo>/` — for this repo, `https://parthdevariya.github.io/Swadeshi/`.
+
+The `deploy` workflow runs the tests first and only publishes if they pass. Any other static HTTPS host (Netlify, Vercel, Cloudflare Pages) works too — upload `index.html`, `manifest.webmanifest`, `sw.js`, `css/`, `js/` and `icons/`.
 
 ## Run locally
 
@@ -52,7 +71,7 @@ npm start        # http://localhost:8080
 npm test         # unit tests (Node 18+)
 ```
 
-The camera only works in a secure context: `localhost` on your computer, or HTTPS. To try it on a phone, deploy the folder to any static HTTPS host — e.g. enable **GitHub Pages** for this repository (Settings → Pages → deploy from branch, root folder).
+The camera and installing both need a secure context: `localhost` on your computer, or HTTPS (see *Publishing* above) on a phone.
 
 ## Project layout
 
@@ -67,8 +86,11 @@ js/barcode.js         Check-digit validation and GS1 prefix lookup (pure, tested
 js/lookup.js          Open Food Facts lookups
 js/webLookup.js       Wikidata ownership chain + Wikipedia summary (pure, tested)
 js/learnedBrands.js   Brands learned from the web, saved on the device (tested)
+js/install.js         Install popup: native prompt on Android, steps on iPhone (tested)
 js/scanner.js         Camera stream, live barcode detection, frame capture
 js/ocr.js             On-device label OCR (Tesseract.js, sparse-text mode)
+manifest.webmanifest  App name, icons, shortcut, screenshot for the install sheet
+icons/                App icons (SVG source + PNG sizes for Android/iOS)
 sw.js                 Offline cache
 tests/                node:test unit tests
 ```

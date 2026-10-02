@@ -32,6 +32,7 @@
 
 body {
   margin: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
   background: var(--bg);
   color: var(--text);
@@ -315,3 +316,79 @@ ul.learned li {
 ul.learned .learned-info span { color: var(--muted); }
 ul.learned .learned-actions { display: flex; gap: 10px; align-items: center; white-space: nowrap; }
 ul.learned a { color: var(--green); }
+
+/* ---------- Install ---------- */
+.header-row { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.install-chip {
+  min-height: 32px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+.install-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0);
+  transition: background 0.25s;
+}
+.install-sheet.open { background: rgba(0, 0, 0, 0.45); }
+.install-card {
+  width: 100%;
+  max-width: 480px;
+  background: var(--card);
+  color: var(--text);
+  border-radius: 20px 20px 0 0;
+  padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.25);
+  transform: translateY(100%);
+  transition: transform 0.25s ease-out;
+}
+.install-sheet.open .install-card { transform: none; }
+@media (prefers-reduced-motion: reduce) { .install-card, .install-sheet { transition: none; } }
+.install-head { display: flex; gap: 14px; align-items: center; }
+.install-head img { border-radius: 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15); }
+.install-head h2 { margin: 0; font-size: 1.15rem; }
+.install-head p { margin: 2px 0 0; color: var(--muted); font-size: 0.9rem; }
+.install-perks { list-style: none; padding: 0; margin: 16px 0 0; font-size: 0.93rem; }
+.install-perks li { padding: 4px 0; }
+.install-steps {
+  margin: 14px 0 0;
+  padding: 12px 12px 12px 34px;
+  background: var(--bg);
+  border-radius: 12px;
+  font-size: 0.95rem;
+}
+.install-steps li { padding: 4px 0; }
+.install-steps small { display: block; color: var(--muted); }
+.share-icon { display: inline-grid; place-items: center; vertical-align: middle; color: #007aff; }
+.install-actions { display: flex; gap: 10px; margin-top: 18px; }
+.install-actions button { flex: 1; min-height: 48px; }
+.install-sheet:not([data-mode="ios"]) .only-ios,
+.install-sheet:not([data-mode="menu"]) .only-menu,
+.install-sheet:not([data-mode="prompt"]) .only-prompt { display: none; }
+.install-sheet[data-mode="ios"] .only-ios.only-menu,
+.install-sheet[data-mode="menu"] .only-ios.only-menu { display: inline; }
+.install-sheet[data-mode="prompt"] .install-perks { margin-bottom: 0; }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 60;
+  background: #1d1d1f;
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  max-width: calc(100% - 32px);
+}

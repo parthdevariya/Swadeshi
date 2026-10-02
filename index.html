@@ -8,13 +8,21 @@
   <meta name="theme-color" content="#ff9933">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="icons/icon.svg">
+  <link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Swadeshi">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
   <header class="app-header">
     <div class="flag-stripe" aria-hidden="true"></div>
-    <h1>Swadeshi Scanner</h1>
+    <div class="header-row">
+      <h1>Swadeshi Scanner</h1>
+      <button class="install-chip" id="install-btn" hidden>⬇️ Install app</button>
+    </div>
   </header>
 
   <main>
@@ -67,6 +75,42 @@
       </details>
     </section>
   </main>
+
+  <!-- Install popup (bottom sheet). Content switches on data-mode: prompt | ios | menu -->
+  <div class="install-sheet" id="install-sheet" role="dialog" aria-modal="true" aria-labelledby="install-title" hidden>
+    <div class="install-card">
+      <div class="install-head">
+        <img src="icons/icon-192.png" alt="" width="56" height="56">
+        <div>
+          <h2 id="install-title">Install Swadeshi Scanner</h2>
+          <p>Free · no sign-up · works offline</p>
+        </div>
+      </div>
+      <ul class="install-perks">
+        <li>📷 Opens straight to the camera from your home screen</li>
+        <li>⚡ Faster, full-screen, no browser bars</li>
+        <li>💾 Your saved brands and history stay on your phone</li>
+      </ul>
+      <ol class="install-steps only-ios">
+        <li>Tap the <b>Share</b> button <span class="share-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 3v12M7 8l5-5 5 5M5 12v8h14v-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <small>(bottom bar in Safari, top-right in Chrome)</small></li>
+        <li>Scroll and choose <b>Add to Home Screen</b> <span aria-hidden="true">➕</span></li>
+        <li>Tap <b>Add</b></li>
+      </ol>
+      <ol class="install-steps only-menu">
+        <li>Open your browser menu <b>⋮</b></li>
+        <li>Choose <b>Install app</b> or <b>Add to Home screen</b></li>
+      </ol>
+      <div class="install-actions">
+        <button class="install-later" type="button">Not now</button>
+        <button class="install-primary primary" type="button">
+          <span class="only-prompt">Install</span><span class="only-ios only-menu">Got it</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" hidden></div>
 
   <footer>
     <p>Free &amp; private: text is read on your phone. Product and brand details come from

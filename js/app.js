@@ -5,6 +5,7 @@ import { lookupBarcode } from './lookup.js';
 import { Camera, createBarcodeReader, fileToCanvas } from './scanner.js';
 import { readText, warmUpOcr } from './ocr.js';
 import { extractCompanyNames, setLearnedBrands } from './textParser.js';
+import { setupInstall } from './install.js';
 import { forgetBrand, learnBrand, loadLearned, makeLearnedEntry, suggestionUrl } from './learnedBrands.js';
 import { brandBackground, researchFirst, webSearchUrl } from './webLookup.js';
 
@@ -476,10 +477,32 @@ $('#clear-history').addEventListener('click', () => {
 renderHistory();
 refreshLearned();
 
-// Returning users who already granted camera access go straight to scanning.
-navigator.permissions?.query({ name: 'camera' })
-  .then((p) => { if (p.state === 'granted') startScanning(); })
-  .catch(() => {});
+// Returning users who already granted camera access go straight to scanning,
+// as does the "Scan a product" home-screen shortcut.
+if (new URLSearchParams(location.search).get('scan') === '1') startScanning();
+else {
+  navigator.permissions?.query({ name: 'camera' })
+    .then((p) => { if (p.state === 'granted') startScanning(); })
+    .catch(() => {});
+}
+
+// ====================================================================
+// Install as an app
+// ====================================================================
+
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => (t.hidden = true), 3500);
+}
+
+setupInstall({
+  sheet: $('#install-sheet'),
+  headerButton: $('#install-btn'),
+  onInstalled: () => toast('✅ Installed! Open Swadeshi from your home screen.'),
+});
 
 // Release the camera when the app is hidden; it restarts with one tap.
 document.addEventListener('visibilitychange', () => {
