@@ -43,6 +43,9 @@ test('parses Gemini output and normalises "unknown" to null', () => {
   assert.equal(r.barcode, '8901058000000');
   assert.deepEqual(r.candidates, ['Nestlé', 'Maggi']);
   assert.equal(parseGeminiResponse({ candidates: [{ content: { parts: [{ text: 'not json' }] } }] }), null);
+  // Thought parts from thinking models are ignored.
+  const withThought = { candidates: [{ content: { parts: [{ text: 'let me think…', thought: true }, { text: '{"brand":"Amul","confidence":0.8}', thoughtSignature: 'x' }] } }] };
+  assert.equal(parseGeminiResponse(withThought).brand, 'Amul');
 });
 
 test('parses Cloud Vision logo, web and text results, dropping generic entities', () => {
@@ -66,7 +69,7 @@ test('merging prefers Gemini fields and keeps Vision text', () => {
 test('identifyProduct calls the right endpoints with the key and survives one failing', async () => {
   const calls = [];
   const fetchFn = fakeFetch([
-    [/generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-flash-latest:generateContent\?key=G-KEY/, () => ({ body: geminiReply({ brand: 'Parle-G', brandOwner: 'Parle Products', ownerCountry: 'India', confidence: 0.95 }) })],
+    [/generativelanguage\.googleapis\.com\/v1beta\/models\/gemini-flash-latest:generateContent$/, () => ({ body: geminiReply({ brand: 'Parle-G', brandOwner: 'Parle Products', ownerCountry: 'India', confidence: 0.95 }) })],
     [/vision\.googleapis\.com\/v1\/images:annotate\?key=V-KEY/, () => ({ status: 429, body: { error: { code: 429, message: 'Quota exceeded' } } })],
   ], calls);
   const { result, errors } = await identifyProduct('IMG', { provider: 'both', geminiKey: 'G-KEY', visionKey: 'V-KEY', geminiModel: 'gemini-flash-latest' }, { fetchFn });
@@ -74,6 +77,8 @@ test('identifyProduct calls the right endpoints with the key and survives one fa
   assert.deepEqual(errors, ['Cloud Vision: free quota used up for now. Try again later.']);
   assert.equal(calls.length, 2);
   assert.equal(calls[0].opts.method, 'POST');
+  assert.equal(calls[0].opts.headers['x-goog-api-key'], 'G-KEY');
+  assert.ok(!calls[0].url.includes('G-KEY'), 'Gemini key must not be in the URL');
 });
 
 test('friendly errors for bad keys, disabled APIs and billing', async () => {
@@ -88,7 +93,7 @@ test('friendly errors for bad keys, disabled APIs and billing', async () => {
 });
 
 test('key test success messages', async () => {
-  const ok = fakeFetch([[/models\/gemini-flash-latest\?key=K/, () => ({ body: { displayName: 'Gemini Flash Latest' } })], [/vision/, () => ({ body: { responses: [{}] } })]]);
+  const ok = fakeFetch([[/models\/gemini-flash-latest$/, () => ({ body: { displayName: 'Gemini Flash Latest' } })], [/vision/, () => ({ body: { responses: [{}] } })]]);
   assert.match(await testGeminiKey('K', undefined, { fetchFn: ok }), /Key works/);
   assert.match(await testVisionKey('K', { fetchFn: ok }), /Key works/);
 });
@@ -130,4 +135,32 @@ test('unknown brand falls back to the model with low weight, Wikidata beats it',
 test('country of origin read by the model counts as manufacture evidence', () => {
   const r = classify({ brandQuery: 'Amul', ai: { brand: 'Amul', countryOfOrigin: 'India', candidates: [] } });
   assert.equal(r.verdict, 'swadeshi');
+});
+
+test('retries Gemini once when Google is briefly overloaded', async () => {
+  const { geminiIdentify } = await import('../js/imageAI.js');
+  let n = 0;
+  const flaky = () => {
+    n++;
+    const busy = n === 1;
+    return Promise.resolve({
+      ok: !busy,
+      status: busy ? 503 : 200,
+      json: () => Promise.resolve(busy
+        ? { error: { code: 503, message: 'This model is currently experiencing high demand.' } }
+        : geminiReply({ brand: 'Amul', confidence: 0.9 })),
+    });
+  };
+  assert.equal((await geminiIdentify('IMG', { key: 'k', fetchFn: flaky, retryDelayMs: 1 })).brand, 'Amul');
+  const urls = [];
+  const mainBusy = (url) => {
+    urls.push(url);
+    const busy = !url.includes('flash-lite');
+    return Promise.resolve({ ok: !busy, status: busy ? 503 : 200, json: () => Promise.resolve(busy ? { error: { message: 'high demand' } } : geminiReply({ brand: 'Dabur', confidence: 0.8 })) });
+  };
+  assert.equal((await geminiIdentify('IMG', { key: 'k', fetchFn: mainBusy, retryDelayMs: 1 })).brand, 'Dabur');
+  assert.equal(urls.length, 3);
+  assert.match(urls[2], /gemini-flash-lite-latest:generateContent$/);
+  const alwaysBusy = () => Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({ error: { message: 'high demand' } }) });
+  await assert.rejects(geminiIdentify('IMG', { key: 'k', fetchFn: alwaysBusy, retryDelayMs: 1 }), /busy right now/);
 });

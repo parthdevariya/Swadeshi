@@ -13,6 +13,8 @@
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const VISION_URL = 'https://vision.googleapis.com/v1/images:annotate';
 export const DEFAULT_GEMINI_MODEL = 'gemini-flash-latest';
+// Lighter model used when the main one is overloaded.
+export const FALLBACK_GEMINI_MODEL = 'gemini-flash-lite-latest';
 
 const PROMPT = `You help Indian shoppers find out who makes a product. Look at the photo: packaging, logo, colours, design and any printed text.
 Return JSON with:
@@ -56,17 +58,18 @@ function friendlyError(provider, status, apiMessage = '') {
   }
   if (status === 404) return `${name}: model not found. Check the model name in Settings.`;
   if (status === 429) return `${name}: free quota used up for now. Try again later.`;
+  if (status === 500 || status === 503) return `${name} is busy right now. Try again in a moment.`;
   return `${name}: ${apiMessage || `request failed (${status})`}`;
 }
 
-async function postJson(fetchFn, url, body, provider, timeoutMs) {
+async function postJson(fetchFn, url, body, provider, timeoutMs, extraHeaders = {}) {
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timer = ctrl && setTimeout(() => ctrl.abort(), timeoutMs);
   let res;
   try {
     res = await fetchFn(url, {
       method: body ? 'POST' : 'GET',
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...extraHeaders },
       body: body ? JSON.stringify(body) : undefined,
       signal: ctrl?.signal,
     });
@@ -96,7 +99,8 @@ export function buildGeminiRequest(base64Jpeg) {
 }
 
 export function parseGeminiResponse(data) {
-  const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
+  // Thinking models may return "thought" parts before the answer; read only the answer.
+  const text = data?.candidates?.[0]?.content?.parts?.filter((p) => !p.thought).map((p) => p.text || '').join('') || '';
   let j;
   try {
     j = JSON.parse(text.replace(/^```(json)?\s*|\s*```$/g, ''));
@@ -121,9 +125,25 @@ export function parseGeminiResponse(data) {
   return r;
 }
 
-export async function geminiIdentify(base64Jpeg, { key, model = DEFAULT_GEMINI_MODEL, fetchFn = globalThis.fetch, timeoutMs = 25000 }) {
-  const url = `${GEMINI_BASE}/models/${encodeURIComponent(model || DEFAULT_GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(key)}`;
-  const data = await postJson(fetchFn, url, buildGeminiRequest(base64Jpeg), 'gemini', timeoutMs);
+export async function geminiIdentify(base64Jpeg, { key, model = DEFAULT_GEMINI_MODEL, fetchFn = globalThis.fetch, timeoutMs = 25000, retryDelayMs = 1500 }) {
+  const call = (m) => postJson(fetchFn, `${GEMINI_BASE}/models/${encodeURIComponent(m)}:generateContent`,
+    buildGeminiRequest(base64Jpeg), 'gemini', timeoutMs, { 'x-goog-api-key': key }); // header keeps the key out of URLs
+  const busy = (err) => err.status === 500 || err.status === 503;
+  const main = model || DEFAULT_GEMINI_MODEL;
+  let data;
+  try {
+    data = await call(main);
+  } catch (err) {
+    // "High demand" spikes are short-lived: retry once, then try the lighter model.
+    if (!busy(err)) throw err;
+    await new Promise((r) => setTimeout(r, retryDelayMs));
+    try {
+      data = await call(main);
+    } catch (err2) {
+      if (!busy(err2) || main === FALLBACK_GEMINI_MODEL) throw err2;
+      data = await call(FALLBACK_GEMINI_MODEL);
+    }
+  }
   return parseGeminiResponse(data);
 }
 
@@ -226,8 +246,8 @@ const TINY_JPEG = '/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYwLjMxLjEwMgD/2wBDAAgUF
 
 /** Check a Gemini key without using image quota: list the model. */
 export async function testGeminiKey(key, model = DEFAULT_GEMINI_MODEL, { fetchFn = globalThis.fetch } = {}) {
-  const url = `${GEMINI_BASE}/models/${encodeURIComponent(model || DEFAULT_GEMINI_MODEL)}?key=${encodeURIComponent(key)}`;
-  const data = await postJson(fetchFn, url, null, 'gemini', 10000);
+  const url = `${GEMINI_BASE}/models/${encodeURIComponent(model || DEFAULT_GEMINI_MODEL)}`;
+  const data = await postJson(fetchFn, url, null, 'gemini', 10000, { 'x-goog-api-key': key });
   return `Key works — ${data.displayName || model} is available.`;
 }
 

@@ -114,7 +114,7 @@ export function classify(input = {}) {
     // Last resort: the image model's own knowledge. Unverified, so low weight.
     const a = input.ai;
     const indian = /^(india|bharat)$/i.test(a.ownerCountry);
-    brand = { name: a.brand, owner: a.brandOwner || a.brand, country: indian ? 'India' : a.ownerCountry, indian, category: null, note: null, source: 'ai' };
+    brand = { name: a.brand, owner: a.brandOwner || a.manufacturer || a.brand, country: indian ? 'India' : a.ownerCountry, indian, category: null, note: null, source: 'ai' };
     ownership = indian ? 'indian' : 'foreign';
     add(indian ? 'india' : 'foreign', 1,
       `Image recognition thinks ${a.brand} is owned by ${brand.owner} (${brand.country}) — not yet confirmed by our list or Wikidata.`);

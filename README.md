@@ -60,7 +60,7 @@ Google Lens has no public API, so the app offers Google's two closest options:
 **Gemini key (2 minutes):**
 1. Open [aistudio.google.com/apikey](https://aistudio.google.com/apikey) and sign in with a Google account.
 2. Tap **Create API key** (choose *Create API key in new project* if asked).
-3. In the app: **⚙️ Settings → Google Gemini**, paste the key (starts with `AIza`), tap **Test**, then **Save**.
+3. In the app: **⚙️ Settings → Google Gemini**, paste the key (starts with `AQ.` or `AIza`), tap **Test**, then **Save**.
 
 **Cloud Vision key:**
 1. In [Google Cloud Console](https://console.cloud.google.com/projectcreate) create a project.
