@@ -1,6 +1,14 @@
 # Swadeshi Scanner 🇮🇳
 
-A mobile web app (installable PWA) that tells you whether a product is **Swadeshi** — owned by an Indian company and made in India — by scanning its barcode, reading its label, or searching the brand.
+A mobile web app (installable PWA) that tells you whether a product is **Swadeshi** — owned by an Indian company and made in India.
+
+**One tap and you're scanning.** Point the camera at anything:
+
+- a **barcode** is read automatically, no button needed;
+- no barcode? Tap the shutter and the app **reads the label or front of pack** (on-device OCR);
+- it then **researches the brand online** — who owns it, which country they're in, and a short background — using free, open sources.
+
+Everything is free: no account, no API keys, no paid AI services.
 
 ## How it decides
 
@@ -23,8 +31,11 @@ When the brand is foreign-owned, the app suggests Indian-owned alternatives in t
 
 ## Features
 
-- 📷 Live barcode scanning (native `BarcodeDetector`, with ZXing fallback for iPhone/Firefox), photo upload, or typed digits
-- 🏷️ Label OCR with editable recognised text
+- 📷 One camera for everything: live barcode detection + shutter for label OCR (native `BarcodeDetector`, ZXing fallback for iPhone/Firefox)
+- ⚡ OCR engine pre-loads while you aim, so the first label read is quick; step-by-step progress while it works
+- 🏷️ Editable recognised text with re-check
+- 🌐 Free web research (Wikidata ownership chain + Wikipedia background)
+- 🖼️ Pick a photo from the gallery instead of using the camera
 - 🔎 Brand search with autocomplete
 - 🕘 Recent-checks history (stored only on the device)
 - 📴 Works offline for brand search and barcode-prefix checks
@@ -52,8 +63,9 @@ js/brands.js          Brand → owner database
 js/textParser.js      Origin / manufacturer / brand extraction from text (pure, tested)
 js/barcode.js         Check-digit validation and GS1 prefix lookup (pure, tested)
 js/lookup.js          Open Food Facts lookups
-js/scanner.js         Camera barcode scanning
-js/ocr.js             Label OCR
+js/webLookup.js       Wikidata ownership chain + Wikipedia summary (pure, tested)
+js/scanner.js         Camera stream, live barcode detection, frame capture
+js/ocr.js             On-device label OCR (Tesseract.js, sparse-text mode)
 sw.js                 Offline cache
 tests/                node:test unit tests
 ```
@@ -72,4 +84,6 @@ Ownership changes through acquisitions, so the brand list needs care:
 
 - Results are guidance, not certification. Always check the "Country of Origin" printed on the pack (mandatory on packaged goods sold in India).
 - Coverage of Indian products in Open Food Facts is partial; scanning the label fills the gap.
+- Wikidata is community-edited: smaller brands may be missing, and ownership data can lag behind recent deals. The curated list always takes priority.
+- OCR works best on flat, well-lit, in-focus text in English.
 - Joint ventures and partial stakes are simplified to the controlling owner.

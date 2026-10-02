@@ -124,3 +124,28 @@ export function parseLabelText(text) {
     brands: findBrands(text),
   };
 }
+
+const CORP_SUFFIX = /(private\s+limited|pvt\.?\s*ltd\.?|limited|ltd\.?|llp|inc\.?|corporation|corp\.?|company|co\.)/;
+
+/**
+ * Company names printed after "Manufactured by", "Marketed by", "Imported by" …
+ * e.g. "Mfd. by: Parle Products Pvt. Ltd., Mumbai" → "Parle Products Pvt. Ltd."
+ * Marketer/brand-owner names come first: they are the brand owner more often
+ * than a contract manufacturer is.
+ */
+export function extractCompanyNames(text) {
+  const t = String(text ?? '').replace(/\s+/g, ' ');
+  const re = /\b(marketed|mktd|mkt|manufactured|mfd|mfg|imported|packed|distributed)\.?\s*(&|and)?\s*(marketed|packed)?\s*(by|for)\s*[:\-]?\s*([^,;\n]{3,80})/gi;
+  const found = [];
+  for (const m of t.matchAll(re)) {
+    const verb = m[1].toLowerCase();
+    let name = m[5];
+    const suffix = name.toLowerCase().match(CORP_SUFFIX);
+    if (suffix) name = name.slice(0, suffix.index + suffix[0].length);
+    name = name.replace(/^(m\/s\.?|messrs\.?)\s*/i, '').trim();
+    if (name.length < 3 || !/[a-z]{3}/i.test(name)) continue;
+    found.push({ name, marketer: /^(marketed|mktd|mkt)$/.test(verb) || /marketed/i.test(m[3] || '') });
+  }
+  found.sort((a, b) => Number(b.marketer) - Number(a.marketer));
+  return [...new Set(found.map((f) => f.name))];
+}

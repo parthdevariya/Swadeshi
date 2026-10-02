@@ -62,7 +62,9 @@ export const VERDICTS = {
  * @param {string} [input.barcode]       Scanned barcode digits.
  * @param {string} [input.labelText]     OCR text from the pack.
  * @param {string} [input.brandQuery]    Brand typed by the user.
+ * @param {string} [input.headline]      Largest text on the pack (usually the brand), from OCR.
  * @param {object} [input.online]        Normalised online lookup result (see lookup.js).
+ * @param {object} [input.web]           Wikidata ownership research (see webLookup.js).
  */
 export function classify(input = {}) {
   const evidence = [];
@@ -76,6 +78,7 @@ export function classify(input = {}) {
     if (hits.length) brand = { ...hits[0], source };
   };
   tryBrands(input.brandQuery, { structured: true }, 'your search');
+  tryBrands(input.headline, { structured: true }, 'label');
   tryBrands(input.online?.brands, { structured: true }, 'product database');
   tryBrands(input.online?.brandOwner, { structured: true }, 'product database');
   tryBrands(input.online?.productName, {}, 'product name');
@@ -87,6 +90,15 @@ export function classify(input = {}) {
     add(ownership === 'indian' ? 'india' : 'foreign', 3,
       `${brand.name} is owned by ${brand.owner} (${brand.country}).`);
     if (brand.note) add('info', 0, brand.note);
+  } else if (input.web?.ownerCountry) {
+    // Not in our curated list — fall back to what Wikidata says.
+    const w = input.web;
+    const indian = w.ownerCountry === 'India';
+    brand = { name: w.name, owner: w.owner, country: w.ownerCountry, indian, category: null, note: null, source: 'web' };
+    ownership = indian ? 'indian' : 'foreign';
+    add(indian ? 'india' : 'foreign', 2, w.chain.length > 1
+      ? `Wikidata: ${w.name} is owned by ${w.owner}, based in ${w.ownerCountry} (${w.chain.join(' → ')}).`
+      : `Wikidata: ${w.name} is a company based in ${w.ownerCountry}.`);
   }
 
   // ---- Manufacture ----------------------------------------------------------

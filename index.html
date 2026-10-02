@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Swadeshi Scanner</title>
-  <meta name="description" content="Scan a product's barcode or label to find out whether it is Indian-owned and made in India.">
+  <meta name="description" content="Point your camera at any product — barcode or label — to find out whether it is Indian-owned and made in India.">
   <meta name="theme-color" content="#ff9933">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
@@ -15,59 +15,40 @@
   <header class="app-header">
     <div class="flag-stripe" aria-hidden="true"></div>
     <h1>Swadeshi Scanner</h1>
-    <p class="tagline">Is it Indian? Scan and find out.</p>
   </header>
 
   <main>
-    <nav class="tabs" role="tablist">
-      <button role="tab" aria-selected="true" data-tab="barcode" id="tab-barcode">📷 Barcode</button>
-      <button role="tab" aria-selected="false" data-tab="label" id="tab-label">🏷️ Label</button>
-      <button role="tab" aria-selected="false" data-tab="search" id="tab-search">🔎 Brand</button>
-    </nav>
+    <!-- One camera for everything: barcodes are read live, the shutter reads the label. -->
+    <section class="stage" id="stage">
+      <video id="video" playsinline muted aria-label="Camera preview"></video>
+      <img id="still" alt="" hidden>
+      <div class="frame" aria-hidden="true"></div>
 
-    <!-- Barcode -->
-    <section class="panel" data-panel="barcode" role="tabpanel" aria-labelledby="tab-barcode">
-      <div class="viewfinder" id="viewfinder" hidden>
-        <video id="video" playsinline muted></video>
-        <div class="scan-line" aria-hidden="true"></div>
+      <button class="start" id="start">
+        <span class="start-icon" aria-hidden="true">📷</span>
+        <span class="start-title">Tap to scan</span>
+        <span class="start-sub">Barcode, label, or front of pack</span>
+      </button>
+
+      <div class="controls" id="controls" hidden>
+        <p class="live-hint" id="live-hint">Barcodes scan automatically.<br>No barcode? Tap the button to read the label.</p>
+        <div class="control-row">
+          <label class="icon-btn" title="Choose a photo">🖼️<input type="file" accept="image/*" id="photo-file" hidden><span class="sr">Choose a photo</span></label>
+          <button class="shutter" id="shutter" aria-label="Read this product"></button>
+          <button class="icon-btn" id="close-cam" aria-label="Close camera">✕</button>
+        </div>
       </div>
-      <div class="actions">
-        <button class="primary" id="start-scan">Start camera</button>
-        <button id="stop-scan" hidden>Stop</button>
-        <label class="file-btn">Upload photo<input type="file" accept="image/*" id="barcode-file" hidden></label>
-      </div>
-      <form id="manual-form" class="inline-form">
-        <input id="manual-code" inputmode="numeric" pattern="[0-9 ]{8,14}" placeholder="Or type the barcode digits" aria-label="Barcode number">
-        <button type="submit">Check</button>
-      </form>
-      <p class="hint">Barcodes beginning with <b>890</b> are registered with GS1 India.</p>
     </section>
 
-    <!-- Label OCR -->
-    <section class="panel" data-panel="label" role="tabpanel" aria-labelledby="tab-label" hidden>
-      <p class="hint">Take a clear photo of the back of the pack — the part with
-        <b>“Manufactured by”</b>, <b>“Marketed by”</b> or <b>“Country of Origin”</b>.</p>
-      <div class="actions">
-        <label class="file-btn primary">Take / choose photo<input type="file" accept="image/*" capture="environment" id="label-file" hidden></label>
-      </div>
-      <div class="progress" id="ocr-progress" hidden><div class="bar"></div><span>Reading label…</span></div>
-      <details id="ocr-details" hidden>
-        <summary>Text we read (edit and re-check if needed)</summary>
-        <textarea id="ocr-text" rows="6"></textarea>
-        <button id="recheck-text">Re-check text</button>
-      </details>
-    </section>
+    <form id="search-form" class="search">
+      <input id="brand-input" list="brand-list" placeholder="…or type a brand name" aria-label="Brand name" autocomplete="off" enterkeyhint="search">
+      <button type="submit" aria-label="Check brand">🔎</button>
+    </form>
+    <datalist id="brand-list"></datalist>
 
-    <!-- Brand search -->
-    <section class="panel" data-panel="search" role="tabpanel" aria-labelledby="tab-search" hidden>
-      <form id="search-form" class="inline-form">
-        <input id="brand-input" list="brand-list" placeholder="e.g. Maggi, Amul, Thums Up" aria-label="Brand name" autocomplete="off">
-        <button type="submit" class="primary">Check</button>
-      </form>
-      <datalist id="brand-list"></datalist>
-    </section>
+    <section class="status" id="status" role="status" aria-live="polite" hidden></section>
 
-    <section id="status" class="status" role="status" aria-live="polite" hidden></section>
+    <ol class="steps" id="steps" hidden></ol>
 
     <section id="result" class="result" aria-live="polite" hidden></section>
 
@@ -81,9 +62,11 @@
   </main>
 
   <footer>
-    <p>Results combine a curated brand-ownership list, barcode prefixes, label text and
-      <a href="https://openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a>.
-      Ownership changes over time — always double-check the “Country of Origin” on the pack.</p>
+    <p>Free &amp; private: text is read on your phone. Product and brand details come from
+      <a href="https://openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a>,
+      <a href="https://www.wikidata.org" target="_blank" rel="noopener">Wikidata</a> and
+      <a href="https://www.wikipedia.org" target="_blank" rel="noopener">Wikipedia</a>.
+      Ownership changes over time — always check “Country of Origin” on the pack.</p>
   </footer>
 
   <script type="module" src="js/app.js"></script>

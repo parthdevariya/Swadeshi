@@ -36,3 +36,12 @@ test('ignores ambiguous everyday words in free text but not in brand fields', ()
 test('word boundaries prevent partial matches', () => {
   assert.deepEqual(findBrands('Amulya'), []);
 });
+
+test('extracts company names, marketer first', async () => {
+  const { extractCompanyNames } = await import('../js/textParser.js');
+  assert.deepEqual(
+    extractCompanyNames('Mfd. by: ABC Foods Pvt. Ltd., Plot 4, Pune. Marketed by: XYZ Brands Limited, Mumbai'),
+    ['XYZ Brands Limited', 'ABC Foods Pvt. Ltd.'],
+  );
+  assert.deepEqual(extractCompanyNames('Net weight 200 g'), []);
+});

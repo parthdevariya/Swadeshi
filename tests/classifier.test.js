@@ -73,3 +73,19 @@ test('brand database has no conflicting duplicate names', () => {
     seen.set(k, b.indian);
   }
 });
+
+test('unknown brand uses Wikidata ownership', () => {
+  const web = { name: 'Some Cola', owner: 'Global Drinks Inc', ownerCountry: 'United States', chain: ['Some Cola', 'Global Drinks Inc'] };
+  const r = classify({ headline: 'Some Cola', web, labelText: 'Made in India' });
+  assert.equal(r.verdict, 'made-in-india');
+  assert.ok(r.evidence.some((e) => e.text.startsWith('Wikidata:')));
+});
+
+test('curated list wins over Wikidata', () => {
+  const web = { name: 'Amul', owner: 'Somebody', ownerCountry: 'France', chain: ['Amul'] };
+  assert.equal(classify({ brandQuery: 'Amul', web }).ownership, 'indian');
+});
+
+test('large headline text identifies the brand', () => {
+  assert.equal(classify({ headline: 'Real' }).brand.owner, 'Dabur India');
+});

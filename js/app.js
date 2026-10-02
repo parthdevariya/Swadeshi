@@ -1,142 +1,200 @@
 import { BRANDS } from './brands.js';
 import { classify } from './classifier.js';
-import { cleanCode, isValidGtin } from './barcode.js';
+import { cleanCode } from './barcode.js';
 import { lookupBarcode } from './lookup.js';
-import { startScanner, decodeImageFile } from './scanner.js';
-import { recognizeLabel } from './ocr.js';
+import { Camera, createBarcodeReader, fileToCanvas } from './scanner.js';
+import { readText, warmUpOcr } from './ocr.js';
+import { extractCompanyNames } from './textParser.js';
+import { brandBackground, researchFirst, webSearchUrl } from './webLookup.js';
 
 const $ = (sel) => document.querySelector(sel);
 const HISTORY_KEY = 'swadeshi-history-v1';
 
-// Everything we know about the product currently being checked. Scanning a
-// label after a barcode refines the same product rather than starting over.
+const camera = new Camera($('#video'));
+let reader = null;
 let current = {};
-let stopScan = null;
+let runId = 0; // bumps on every new scan so stale async work is discarded
+let refining = null; // { barcode, online } when the user is adding a label photo to a barcode scan
 
-// ---------- Tabs ----------
-document.querySelectorAll('.tabs button').forEach((btn) =>
-  btn.addEventListener('click', () => showTab(btn.dataset.tab)),
-);
+// ====================================================================
+// Camera
+// ====================================================================
 
-function showTab(name) {
-  document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
-  document.querySelectorAll('.panel').forEach((p) => (p.hidden = p.dataset.panel !== name));
-  if (name !== 'barcode') stopCamera();
+$('#start').addEventListener('click', startScanning);
+$('#close-cam').addEventListener('click', closeCamera);
+$('#shutter').addEventListener('click', captureAndRead);
+
+async function startScanning({ labelOnly = false } = {}) {
+  if (!labelOnly) refining = null;
+  setStatus('');
+  $('#stage').classList.remove('compact');
+  $('#still').hidden = true;
+  $('#start').hidden = true;
+  $('#controls').hidden = false;
+  $('#stage').classList.add('live');
+  try {
+    await camera.start();
+  } catch (err) {
+    closeCamera();
+    setStatus(cameraErrorMessage(err), true);
+    return;
+  }
+  warmUpOcr().catch(() => {}); // download the OCR engine while the user aims
+  $('#live-hint').innerHTML = labelOnly
+    ? 'Aim at the back of the pack — “Manufactured by” / “Country of Origin” — and tap the button.'
+    : 'Barcodes scan automatically.<br>No barcode? Tap the button to read the label.';
+  if (labelOnly) return;
+  try {
+    reader ??= await createBarcodeReader();
+    camera.detectBarcodes(reader, onLiveBarcode);
+  } catch {
+    $('#live-hint').textContent = 'Tap the button to read the product.';
+  }
 }
 
-// ---------- Status ----------
-function setStatus(msg, isError = false) {
-  const el = $('#status');
-  el.hidden = !msg;
-  el.textContent = msg || '';
-  el.classList.toggle('error', isError);
+function closeCamera() {
+  camera.stop();
+  $('#stage').classList.remove('live', 'compact');
+  $('#controls').hidden = true;
+  $('#start').hidden = false;
+  $('#still').hidden = true;
 }
 
-// ---------- Barcode ----------
-$('#start-scan').addEventListener('click', async () => {
-  setStatus('Point the camera at the barcode…');
-  $('#viewfinder').hidden = false;
-  $('#start-scan').hidden = true;
-  $('#stop-scan').hidden = false;
-  stopScan = await startScanner(
-    $('#video'),
-    (code) => {
-      resetCameraUi();
-      navigator.vibrate?.(80);
-      checkBarcode(code);
-    },
-    (err) => {
-      resetCameraUi();
-      setStatus(cameraErrorMessage(err), true);
-    },
-  );
+function freeze(canvas) {
+  $('#still').src = canvas.toDataURL('image/jpeg', 0.8);
+  $('#still').hidden = false;
+  $('#stage').classList.add('compact'); // make room for the answer
+}
+
+function onLiveBarcode(code) {
+  navigator.vibrate?.(60);
+  freeze(camera.capture());
+  camera.stop();
+  $('#controls').hidden = true;
+  analyze({ barcode: code });
+}
+
+async function captureAndRead() {
+  if (!camera.running) return;
+  const canvas = camera.capture();
+  freeze(canvas);
+  camera.stop();
+  $('#controls').hidden = true;
+  await analyzeImage(canvas);
+}
+
+$('#photo-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const canvas = await fileToCanvas(file);
+  freeze(canvas);
+  camera.stop();
+  $('#controls').hidden = true;
+  $('#stage').classList.add('live');
+  $('#start').hidden = true;
+  await analyzeImage(canvas);
 });
 
-$('#stop-scan').addEventListener('click', stopCamera);
+/** A still image may hold a barcode, label text, or both — try everything. */
+async function analyzeImage(canvas) {
+  const id = ++runId;
+  resetResult();
+  const steps = showSteps(['Looking for a barcode', 'Reading the text', 'Checking the brand', 'Searching the web']);
+  steps.active(0);
+  let barcode = null;
+  try {
+    reader ??= await createBarcodeReader();
+    barcode = await reader.detect(canvas);
+  } catch {
+    // Barcode library unavailable — the text alone may be enough.
+  }
+  if (id !== runId) return;
+  steps.done(0, barcode ? `Barcode ${barcode}` : 'No barcode — using the text');
+  current = { barcode: barcode ? cleanCode(barcode) : refining?.barcode };
+  const online = barcode && barcode !== refining?.barcode
+    ? lookupBarcode(current.barcode)
+    : Promise.resolve(refining?.online ?? null);
+  refining = null;
 
-function stopCamera() {
-  stopScan?.();
-  stopScan = null;
-  resetCameraUi();
+  steps.active(1);
+  let ocr = { text: '', headline: null };
+  try {
+    ocr = await readText(canvas, (pct) => steps.progress(1, pct));
+  } catch (err) {
+    steps.fail(1, err.message);
+  }
+  if (id !== runId) return;
+  current.labelText = ocr.text;
+  current.headline = ocr.headline || undefined;
+  if (ocr.text.trim()) steps.done(1, ocr.headline ? `Read “${ocr.headline}”` : 'Text read');
+  else steps.fail(1, 'Couldn’t read any text — try closer, with more light');
+
+  await finishAnalysis(id, steps, online, 2);
 }
 
-function resetCameraUi() {
-  $('#viewfinder').hidden = true;
-  $('#start-scan').hidden = false;
-  $('#stop-scan').hidden = true;
+async function analyze(input) {
+  const id = ++runId;
+  resetResult();
+  current = { ...input, barcode: input.barcode ? cleanCode(input.barcode) : undefined };
+  const steps = showSteps([current.barcode ? `Barcode ${current.barcode}` : `Brand “${current.brandQuery}”`, 'Checking the brand', 'Searching the web']);
+  steps.done(0);
+  const online = current.barcode ? lookupBarcode(current.barcode) : Promise.resolve(null);
+  await finishAnalysis(id, steps, online, 1);
+}
+
+/** Shared tail: product database → verdict → web research for ownership and details. */
+async function finishAnalysis(id, steps, onlinePromise, first) {
+  steps.active(first);
+  current.online = await onlinePromise;
+  if (id !== runId) return;
+  let result = classify(current);
+  steps.done(first, current.online ? `Found in ${current.online.source}` : result.brand ? `Known brand: ${result.brand.name}` : 'Not in our list yet');
+  render(result);
+
+  // ---- Web research (free: Wikidata + Wikipedia) ----
+  steps.active(first + 1);
+  if (!navigator.onLine) {
+    steps.fail(first + 1, 'Offline — showing what we know locally');
+    saveHistory(result);
+    return;
+  }
+  if (!result.brand) {
+    current.web = await researchFirst(candidateNames());
+    if (id !== runId) return;
+    result = classify(current);
+  }
+  current.wiki = result.brand
+    ? await brandBackground({ wikipediaTitle: current.web?.wikipediaTitle, brand: result.brand.name, owner: result.brand.owner })
+    : null;
+  if (id !== runId) return;
+  steps.done(first + 1, current.web ? `Wikidata: owned by ${current.web.owner}` : current.wiki ? 'Found background on Wikipedia' : 'Nothing more found online');
+  render(result);
+  saveHistory(result);
+}
+
+/** Names worth researching, most reliable first. */
+function candidateNames() {
+  const names = [];
+  if (current.brandQuery) names.push(current.brandQuery);
+  if (current.online?.brandOwner) names.push(current.online.brandOwner);
+  if (current.online?.brands) names.push(...current.online.brands.split(',').map((s) => s.trim()));
+  if (current.labelText) names.push(...extractCompanyNames(current.labelText));
+  if (current.headline) names.push(current.headline);
+  return names.filter(Boolean).slice(0, 5);
 }
 
 function cameraErrorMessage(err) {
-  if (err?.name === 'NotAllowedError') return 'Camera permission was denied. Allow camera access, or upload a photo / type the digits.';
-  if (err?.name === 'NotFoundError') return 'No camera found. Upload a photo or type the barcode digits instead.';
-  if (!window.isSecureContext) return 'The camera needs HTTPS (or localhost). Upload a photo or type the digits instead.';
+  if (!window.isSecureContext) return 'The camera needs a secure (https) page. You can still choose a photo or type a brand.';
+  if (err?.name === 'NotAllowedError') return 'Camera permission was denied. Allow it in your browser settings, or choose a photo / type a brand.';
+  if (err?.name === 'NotFoundError') return 'No camera found. Choose a photo or type a brand instead.';
   return err?.message || 'Could not start the camera.';
 }
 
-$('#barcode-file').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  e.target.value = '';
-  if (!file) return;
-  setStatus('Looking for a barcode in the photo…');
-  try {
-    const code = await decodeImageFile(file);
-    if (code) checkBarcode(code);
-    else setStatus('No barcode found in that photo. Try a closer, sharper shot.', true);
-  } catch (err) {
-    setStatus(err.message, true);
-  }
-});
+// ====================================================================
+// Brand search
+// ====================================================================
 
-$('#manual-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const code = cleanCode($('#manual-code').value);
-  if (!code) return;
-  if (!isValidGtin(code)) {
-    setStatus(`"${code}" doesn't look like a valid barcode — check the digits. Checking anyway…`, true);
-  }
-  checkBarcode(code);
-});
-
-async function checkBarcode(code) {
-  current = { barcode: cleanCode(code) };
-  $('#manual-code').value = current.barcode;
-  setStatus(`Barcode ${current.barcode} — looking it up…`);
-  render(classify(current)); // instant offline answer
-  current.online = await lookupBarcode(current.barcode);
-  setStatus(current.online ? '' : 'Product not found online — showing what the barcode alone tells us.');
-  finish();
-}
-
-// ---------- Label OCR ----------
-$('#label-file').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  e.target.value = '';
-  if (!file) return;
-  const progress = $('#ocr-progress');
-  progress.hidden = false;
-  progress.querySelector('.bar').style.setProperty('--pct', '5%');
-  setStatus('Reading the label on your device — this can take a few seconds the first time…');
-  try {
-    const text = await recognizeLabel(file, (pct) => progress.querySelector('.bar').style.setProperty('--pct', `${pct}%`));
-    $('#ocr-text').value = text;
-    $('#ocr-details').hidden = false;
-    setStatus(text.trim() ? '' : 'No text found — try a sharper, well-lit photo.', !text.trim());
-    checkLabelText(text);
-  } catch (err) {
-    setStatus(err.message, true);
-  } finally {
-    progress.hidden = true;
-  }
-});
-
-$('#recheck-text').addEventListener('click', () => checkLabelText($('#ocr-text').value));
-
-function checkLabelText(text) {
-  current = { ...current, labelText: text };
-  finish();
-}
-
-// ---------- Brand search ----------
 $('#brand-list').append(
   ...[...new Set(BRANDS.map((b) => b.name))].sort().map((n) => Object.assign(document.createElement('option'), { value: n })),
 );
@@ -145,30 +203,58 @@ $('#search-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const q = $('#brand-input').value.trim();
   if (!q) return;
+  $('#brand-input').blur();
   checkBrand(q);
 });
 
 function checkBrand(q) {
-  current = { brandQuery: q };
-  setStatus('');
-  const result = classify(current);
-  if (!result.brand) {
-    setStatus(`"${q}" isn't in our brand list yet. Try scanning the label for “Manufactured by” / “Country of Origin”.`, true);
-  }
-  finish(result);
+  closeCamera();
+  $('#brand-input').value = q;
+  analyze({ brandQuery: q });
 }
 
-// ---------- Rendering ----------
+// ====================================================================
+// Progress steps
+// ====================================================================
+
+function showSteps(labels) {
+  const ol = $('#steps');
+  ol.hidden = false;
+  ol.replaceChildren(...labels.map((l) => el('li', { class: 'pending' }, el('span', { class: 'txt' }, l))));
+  const li = (i) => ol.children[i];
+  const set = (i, cls, text) => {
+    li(i).className = cls;
+    if (text) li(i).querySelector('.txt').textContent = text;
+  };
+  return {
+    active: (i) => set(i, 'active'),
+    done: (i, text) => set(i, 'done', text),
+    fail: (i, text) => set(i, 'fail', text),
+    progress: (i, pct) => set(i, 'active', `Reading the text… ${pct}%`),
+  };
+}
+
+function setStatus(msg, isError = false) {
+  const s = $('#status');
+  s.hidden = !msg;
+  s.textContent = msg || '';
+  s.classList.toggle('error', isError);
+}
+
+function resetResult() {
+  setStatus('');
+  $('#result').hidden = true;
+}
+
+// ====================================================================
+// Result rendering
+// ====================================================================
+
 const TONE = {
   swadeshi: 'good', 'indian-brand': 'good', 'likely-indian': 'good',
   'indian-brand-imported': 'warn', 'made-in-india': 'warn', 'likely-foreign': 'warn',
   foreign: 'bad', 'foreign-brand': 'bad', unknown: 'none',
 };
-
-function finish(result = classify(current)) {
-  render(result);
-  saveHistory(result);
-}
 
 function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
@@ -177,55 +263,105 @@ function el(tag, attrs = {}, ...children) {
     else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
     else node.setAttribute(k, v);
   }
-  node.append(...children.flat().filter((c) => c != null && c !== false));
+  node.append(...children.flat(Infinity).filter((c) => c != null && c !== false));
   return node;
+}
+
+function productTitle(r) {
+  const known = r.brand?.source === 'web' ? null : r.brand?.name;
+  return current.online?.productName || known || current.brandQuery || current.headline || r.brand?.name
+    || (current.barcode ? `Barcode ${current.barcode}` : 'Scanned product');
 }
 
 function render(r) {
   const box = $('#result');
   box.hidden = false;
   const online = current.online;
-  const title = online?.productName || r.brand?.name || current.brandQuery || (current.barcode ? `Barcode ${current.barcode}` : 'Label scan');
+  const wiki = current.wiki;
+  const searchName = r.brand?.name || online?.brands || current.headline || current.brandQuery || current.barcode;
 
   box.replaceChildren(
     el('div', { class: `verdict ${TONE[r.verdict]}` },
       el('span', { class: 'emoji', 'aria-hidden': 'true' }, r.emoji),
-      el('div', {},
-        el('h2', {}, r.label),
-        el('p', {}, r.summary),
-      ),
+      el('div', {}, el('h2', {}, r.label), el('p', {}, r.summary)),
     ),
     el('div', { class: 'body' },
       el('div', { class: 'product' },
         online?.image ? el('img', { src: online.image, alt: '' }) : null,
         el('div', {},
-          el('div', { class: 'name' }, title),
-          el('div', { class: 'meta' },
-            [r.brand ? `Brand: ${r.brand.name} · Owner: ${r.brand.owner}` : online?.brands ? `Brand: ${online.brands}` : null]
-              .filter(Boolean).join(''),
-          ),
+          el('div', { class: 'name' }, productTitle(r)),
+          r.brand ? el('div', { class: 'meta' }, `${r.brand.name} · owned by ${r.brand.owner}${r.brand.country ? ` (${r.brand.country})` : ''}`) : null,
           r.confidence !== 'none' ? el('span', { class: 'pill' }, `Confidence: ${r.confidence}`) : null,
         ),
       ),
+
       r.evidence.length ? [el('h3', {}, 'Why'), el('ul', { class: 'evidence' }, r.evidence.map((e) => el('li', { class: e.direction }, e.text)))] : null,
-      r.alternatives.length
-        ? [
-          el('h3', {}, 'Swadeshi alternatives'),
-          el('ul', { class: 'alts' }, r.alternatives.map((a) =>
-            el('li', {}, el('button', { type: 'button', title: a.owner, onclick: () => { showTab('search'); $('#brand-input').value = a.name; checkBrand(a.name); } }, a.name)))),
-        ]
+
+      r.alternatives.length ? [
+        el('h3', {}, 'Swadeshi alternatives'),
+        el('ul', { class: 'alts' }, r.alternatives.map((a) =>
+          el('li', {}, el('button', { type: 'button', title: a.owner, onclick: () => checkBrand(a.name) }, a.name)))),
+      ] : null,
+
+      wiki ? el('div', { class: 'about' },
+        el('h3', {}, `About ${wiki.title}`),
+        el('div', { class: 'about-body' },
+          wiki.image ? el('img', { src: wiki.image, alt: '', loading: 'lazy' }) : null,
+          el('p', {}, wiki.extract),
+        ),
+        wiki.url ? el('a', { href: wiki.url, target: '_blank', rel: 'noopener' }, 'Read more on Wikipedia →') : null,
+      ) : null,
+
+      current.labelText ? el('details', { class: 'ocr' },
+        el('summary', {}, 'Text read from the pack'),
+        el('textarea', { id: 'ocr-text', rows: '6' }, current.labelText),
+        el('button', { type: 'button', onclick: recheckText }, 'Re-check edited text'),
+      ) : null,
+
+      r.manufacture == null && !current.labelText && current.barcode
+        ? el('button', { type: 'button', class: 'refine', onclick: readLabelToo }, '🏷️ Not sure yet — photograph the label to confirm where it was made')
         : null,
-      r.manufacture == null && !current.labelText
-        ? el('div', { class: 'refine' },
-          el('button', { type: 'button', onclick: () => { showTab('label'); $('#label-file').click(); } }, '🏷️ Scan the label to confirm where it was made'))
-        : null,
+
+      el('div', { class: 'result-actions' },
+        el('button', { type: 'button', class: 'primary', onclick: scanAnother }, '📷 Scan another'),
+        searchName ? el('a', { class: 'btn', href: webSearchUrl(searchName), target: '_blank', rel: 'noopener' }, '🌐 Search the web') : null,
+      ),
       online ? el('p', { class: 'hint' }, `Product data: ${online.source}`) : null,
     ),
   );
-  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-// ---------- History ----------
+async function recheckText() {
+  current.labelText = $('#ocr-text').value;
+  current.web = undefined;
+  current.wiki = undefined;
+  const id = ++runId;
+  const steps = showSteps(['Text edited', 'Checking the brand', 'Searching the web']);
+  steps.done(0);
+  await finishAnalysis(id, steps, Promise.resolve(current.online), 1);
+}
+
+function readLabelToo() {
+  refining = { barcode: current.barcode, online: current.online };
+  runId++;
+  $('#result').hidden = true;
+  $('#steps').hidden = true;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  startScanning({ labelOnly: true });
+}
+
+function scanAnother() {
+  runId++;
+  $('#result').hidden = true;
+  $('#steps').hidden = true;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  startScanning();
+}
+
+// ====================================================================
+// History
+// ====================================================================
+
 function loadHistory() {
   try {
     return JSON.parse(localStorage.getItem(HISTORY_KEY)) || [];
@@ -236,11 +372,11 @@ function loadHistory() {
 
 function saveHistory(r) {
   const entry = {
-    title: current.online?.productName || r.brand?.name || current.brandQuery || current.barcode || 'Label scan',
+    title: productTitle(r),
     emoji: r.emoji,
     label: r.label,
     barcode: current.barcode || null,
-    brandQuery: current.brandQuery || r.brand?.name || null,
+    brandQuery: r.brand?.name || current.brandQuery || null,
     at: Date.now(),
   };
   const list = loadHistory().filter((h) => h.title !== entry.title);
@@ -259,7 +395,11 @@ function renderHistory() {
   $('#history').replaceChildren(...list.map((h) =>
     el('li', {}, el('button', {
       type: 'button',
-      onclick: () => (h.barcode ? checkBarcode(h.barcode) : h.brandQuery && checkBrand(h.brandQuery)),
+      onclick: () => {
+        closeCamera();
+        if (h.barcode) analyze({ barcode: h.barcode });
+        else if (h.brandQuery) checkBrand(h.brandQuery);
+      },
     },
     el('span', {}, `${h.emoji} ${h.title} — ${h.label}`),
     el('span', { class: 'when' }, new Date(h.at).toLocaleDateString())))));
@@ -272,7 +412,16 @@ $('#clear-history').addEventListener('click', () => {
 
 renderHistory();
 
-// ---------- Offline support ----------
+// Returning users who already granted camera access go straight to scanning.
+navigator.permissions?.query({ name: 'camera' })
+  .then((p) => { if (p.state === 'granted') startScanning(); })
+  .catch(() => {});
+
+// Release the camera when the app is hidden; it restarts with one tap.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && camera.running) closeCamera();
+});
+
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
