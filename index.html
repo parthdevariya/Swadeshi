@@ -22,6 +22,7 @@
     <div class="header-row">
       <h1>Swadeshi Scanner</h1>
       <button class="install-chip" id="install-btn" hidden>⬇️ Install app</button>
+      <button class="settings-btn" id="settings-btn" aria-label="Settings">⚙️</button>
     </div>
   </header>
 
@@ -77,8 +78,8 @@
   </main>
 
   <!-- Install popup (bottom sheet). Content switches on data-mode: prompt | ios | menu -->
-  <div class="install-sheet" id="install-sheet" role="dialog" aria-modal="true" aria-labelledby="install-title" hidden>
-    <div class="install-card">
+  <div class="sheet install-sheet" id="install-sheet" role="dialog" aria-modal="true" aria-labelledby="install-title" hidden>
+    <div class="sheet-card">
       <div class="install-head">
         <img src="icons/icon-192.png" alt="" width="56" height="56">
         <div>
@@ -110,10 +111,89 @@
     </div>
   </div>
 
+  <!-- Settings -->
+  <div class="sheet" id="settings-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+    <form class="sheet-card settings-card" id="settings-form">
+      <div class="settings-top">
+        <h2 id="settings-title">⚙️ Settings</h2>
+        <button type="button" class="link" data-close>Close</button>
+      </div>
+
+      <h3>📸 Smarter photo recognition</h3>
+      <p class="hint">Let Google’s AI <b>understand the photo</b> — recognise the product, logo and brand
+        even when there’s little readable text — instead of only reading text. Uses <b>your own free API key</b>.
+        The key is stored only on this phone; photos go to Google only when you scan.</p>
+
+      <fieldset class="providers">
+        <legend class="sr">Recognition service</legend>
+        <label><input type="radio" name="provider" value="off"> <span><b>Off</b> — read text only, everything stays on the phone</span></label>
+        <label><input type="radio" name="provider" value="gemini"> <span><b>Google Gemini</b> <em class="tag">Recommended · free · no card</em><br>
+          <small>AI looks at the whole picture and names the product, brand and maker.</small></span></label>
+        <label><input type="radio" name="provider" value="vision"> <span><b>Google Cloud Vision</b> <em class="tag alt">Google Lens tech</em><br>
+          <small>Logo detection, matching products on the web, and accurate text reading. Free up to ~330 scans/month; needs a billing account.</small></span></label>
+        <label><input type="radio" name="provider" value="both"> <span><b>Both</b> — best accuracy</span></label>
+      </fieldset>
+
+      <section class="key-block" data-for="gemini">
+        <label for="gemini-key"><b>Gemini API key</b></label>
+        <div class="key-row">
+          <input id="gemini-key" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…">
+          <button type="button" class="reveal" data-target="gemini-key" aria-label="Show key">👁️</button>
+          <button type="button" data-test="gemini">Test</button>
+        </div>
+        <p class="key-status" id="gemini-status" role="status"></p>
+        <details class="guide">
+          <summary>How to get a free Gemini key (2 minutes)</summary>
+          <ol>
+            <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and sign in with any Google account.</li>
+            <li>Tap <b>Create API key</b>. If asked, choose <b>Create API key in new project</b>.</li>
+            <li>Copy the key (it starts with <code>AIza</code>), paste it above, tap <b>Test</b>, then <b>Save</b>.</li>
+          </ol>
+          <p><b>Cost:</b> free — no credit card. The free tier has per-minute and per-day limits that are plenty for personal shopping.</p>
+          <p><b>Privacy:</b> on the free tier Google may use what you send to improve its products. Only scan product packaging.</p>
+          <p><b>Protect your key (recommended):</b> in <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud Console → Credentials</a>, open the key and set
+            <i>Application restrictions → Websites</i> to <code class="site-origin"></code>, and
+            <i>API restrictions</i> to <b>Generative Language API</b>. Then a copied key is useless anywhere else.</p>
+        </details>
+        <details class="guide">
+          <summary>Advanced: model</summary>
+          <input id="gemini-model" autocomplete="off" spellcheck="false">
+          <p class="hint">Default <code>gemini-flash-latest</code> always points to Google’s current fast model. Change only if Google retires it.</p>
+        </details>
+      </section>
+
+      <section class="key-block" data-for="vision">
+        <label for="vision-key"><b>Cloud Vision API key</b></label>
+        <div class="key-row">
+          <input id="vision-key" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…">
+          <button type="button" class="reveal" data-target="vision-key" aria-label="Show key">👁️</button>
+          <button type="button" data-test="vision">Test</button>
+        </div>
+        <p class="key-status" id="vision-status" role="status"></p>
+        <details class="guide">
+          <summary>How to get a Cloud Vision key</summary>
+          <ol>
+            <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud Console</a>, sign in and create a project (any name).</li>
+            <li>Open <a href="https://console.cloud.google.com/billing" target="_blank" rel="noopener">Billing</a> and link a billing account. Google requires this even for the free tier.</li>
+            <li>Enable the <a href="https://console.cloud.google.com/apis/library/vision.googleapis.com" target="_blank" rel="noopener">Cloud Vision API</a> for the project.</li>
+            <li>Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Credentials</a> → <b>Create credentials → API key</b>, copy it, paste it above, tap <b>Test</b>, then <b>Save</b>.</li>
+            <li>Restrict the key: <i>Websites</i> → <code class="site-origin"></code>, <i>API restrictions</i> → <b>Cloud Vision API</b>.</li>
+          </ol>
+          <p><b>Cost:</b> the first 1,000 units of each feature per month are free. Each scan uses logo + web + text detection, so about <b>330 free scans a month</b>. Set a <a href="https://console.cloud.google.com/billing/budgets" target="_blank" rel="noopener">budget alert</a> (e.g. ₹100) to be safe.</p>
+        </details>
+      </section>
+
+      <div class="settings-actions">
+        <button type="button" data-clear>Remove keys</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </div>
+
   <div class="toast" id="toast" role="status" hidden></div>
 
   <footer>
-    <p>Free &amp; private: text is read on your phone. Product and brand details come from
+    <p>Free &amp; private: text is read on your phone; photos go to Google only if you turn on photo recognition in ⚙️ Settings. Product and brand details come from
       <a href="https://openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a>,
       <a href="https://www.wikidata.org" target="_blank" rel="noopener">Wikidata</a> and
       <a href="https://www.wikipedia.org" target="_blank" rel="noopener">Wikipedia</a>.

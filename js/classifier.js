@@ -65,6 +65,7 @@ export const VERDICTS = {
  * @param {string} [input.headline]      Largest text on the pack (usually the brand), from OCR.
  * @param {object} [input.online]        Normalised online lookup result (see lookup.js).
  * @param {object} [input.web]           Wikidata ownership research (see webLookup.js).
+ * @param {object} [input.ai]            Image recognition result (see imageAI.js).
  */
 export function classify(input = {}) {
   const evidence = [];
@@ -78,6 +79,8 @@ export function classify(input = {}) {
     if (hits.length) brand = { ...hits[0], source };
   };
   tryBrands(input.brandQuery, { structured: true }, 'your search');
+  tryBrands(input.ai?.brand, { structured: true }, 'image recognition');
+  tryBrands(input.ai?.brandOwner, { structured: true }, 'image recognition');
   tryBrands(input.headline, { structured: true }, 'label');
   tryBrands(input.online?.brands, { structured: true }, 'product database');
   tryBrands(input.online?.brandOwner, { structured: true }, 'product database');
@@ -107,6 +110,17 @@ export function classify(input = {}) {
     add(indian ? 'india' : 'foreign', 2, w.chain.length > 1
       ? `Wikidata: ${w.name} is owned by ${w.owner}, based in ${w.ownerCountry} (${w.chain.join(' → ')}).`
       : `Wikidata: ${w.name} is a company based in ${w.ownerCountry}.`);
+  } else if (input.ai?.brand && input.ai.ownerCountry) {
+    // Last resort: the image model's own knowledge. Unverified, so low weight.
+    const a = input.ai;
+    const indian = /^(india|bharat)$/i.test(a.ownerCountry);
+    brand = { name: a.brand, owner: a.brandOwner || a.brand, country: indian ? 'India' : a.ownerCountry, indian, category: null, note: null, source: 'ai' };
+    ownership = indian ? 'indian' : 'foreign';
+    add(indian ? 'india' : 'foreign', 1,
+      `Image recognition thinks ${a.brand} is owned by ${brand.owner} (${brand.country}) — not yet confirmed by our list or Wikidata.`);
+  }
+  if (input.ai?.brand && brand && brand.source !== 'ai' && brand.source !== 'web') {
+    add('info', 0, `Recognised from the photo: ${input.ai.productName || input.ai.brand}.`);
   }
 
   // ---- Manufacture ----------------------------------------------------------
@@ -126,6 +140,12 @@ export function classify(input = {}) {
   } else if (input.labelText && hasIndianManufacturer(input.labelText)) {
     manufacture = 'india';
     add('india', 2, 'Label lists a manufacturer with an Indian address.');
+  }
+
+  if (!manufacture && input.ai?.countryOfOrigin) {
+    const c = input.ai.countryOfOrigin;
+    manufacture = /\bindia\b/i.test(c) ? 'india' : 'abroad';
+    add(manufacture === 'india' ? 'india' : 'foreign', 2, `Image recognition read the country of origin on the pack: ${c}.`);
   }
 
   if (input.labelText && hasImporterStatement(input.labelText) && manufacture !== 'india') {
@@ -177,7 +197,7 @@ export function classify(input = {}) {
     manufacture,
     barcode,
     evidence,
-    alternatives: ownership === 'indian' ? [] : suggestAlternatives(brand?.category ?? guessCategory(input.online?.categories)),
+    alternatives: ownership === 'indian' ? [] : suggestAlternatives(brand?.category ?? guessCategory(`${input.online?.categories || ''} ${input.ai?.category || ''}`)),
   };
 }
 

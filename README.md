@@ -41,8 +41,39 @@ When the brand is foreign-owned, the app suggests Indian-owned alternatives in t
 - 🔎 Brand search with autocomplete
 - 🕘 Recent-checks history (stored only on the device)
 - 📴 Works offline for brand search and barcode-prefix checks
+- 🧠 Optional photo understanding with your own free Google key (Gemini or Cloud Vision) — recognises product and brand from the picture, not just the text
 - 📲 Installable app with an install popup (Android one-tap install, iPhone step-by-step)
 - 🌗 Light and dark mode
+
+## Smarter photo recognition (optional, free API key)
+
+Without a key the app reads text from the photo on the phone. With a key from Google it also **understands the picture** — the product, logo and brand, even when there's hardly any readable text. Turn it on in **⚙️ Settings**, which also has these guides.
+
+Google Lens has no public API, so the app offers Google's two closest options:
+
+| | Google Gemini (recommended) | Google Cloud Vision |
+|---|---|---|
+| What it does | AI looks at the whole photo and names product, brand, maker, owner and printed country of origin | The tech behind Google Lens: logo detection, matching products on the web, accurate text reading |
+| Cost | Free tier, **no credit card** | First 1,000 units/feature/month free (≈330 scans); **billing account required** |
+| Get a key | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | [Google Cloud Console](https://console.cloud.google.com) |
+
+**Gemini key (2 minutes):**
+1. Open [aistudio.google.com/apikey](https://aistudio.google.com/apikey) and sign in with a Google account.
+2. Tap **Create API key** (choose *Create API key in new project* if asked).
+3. In the app: **⚙️ Settings → Google Gemini**, paste the key (starts with `AIza`), tap **Test**, then **Save**.
+
+**Cloud Vision key:**
+1. In [Google Cloud Console](https://console.cloud.google.com/projectcreate) create a project.
+2. Link a [billing account](https://console.cloud.google.com/billing) (required even for the free tier) and set a budget alert.
+3. Enable the [Cloud Vision API](https://console.cloud.google.com/apis/library/vision.googleapis.com).
+4. [Credentials](https://console.cloud.google.com/apis/credentials) → **Create credentials → API key**; paste it in **⚙️ Settings → Google Cloud Vision**.
+
+**Protect your key:** in [Credentials](https://console.cloud.google.com/apis/credentials), restrict it to *Websites* → `https://parthdevariya.github.io/*` and to the one API it needs (Generative Language API or Cloud Vision API).
+
+How it's used:
+- Keys are stored only in the phone's browser and sent only to Google. Photos are uploaded (downscaled) only when you scan, and only if a service is turned on. On Gemini's free tier Google may use the data to improve its products.
+- Recognition runs alongside barcode detection and on-device text reading, so it adds little waiting.
+- What the AI says is **checked, not trusted**: the recognised brand goes through the curated list, your saved brands and Wikidata first. The model's own guess about the owner is used only as a last resort, marked "not yet confirmed", with low confidence.
 
 ## Use it on your phone
 
@@ -86,6 +117,8 @@ js/barcode.js         Check-digit validation and GS1 prefix lookup (pure, tested
 js/lookup.js          Open Food Facts lookups
 js/webLookup.js       Wikidata ownership chain + Wikipedia summary (pure, tested)
 js/learnedBrands.js   Brands learned from the web, saved on the device (tested)
+js/imageAI.js         Gemini / Cloud Vision photo recognition, key tests (pure, tested)
+js/settings.js        Settings (API keys) stored on the device
 js/install.js         Install popup: native prompt on Android, steps on iPhone (tested)
 js/scanner.js         Camera stream, live barcode detection, frame capture
 js/ocr.js             On-device label OCR (Tesseract.js, sparse-text mode)
@@ -117,5 +150,6 @@ Ownership changes through acquisitions, so the brand list needs care:
 - Coverage of Indian products in Open Food Facts is partial; scanning the label fills the gap.
 - Saved brands live on each phone (browser storage); there is no shared server, so they reach other users only through the curated list.
 - Wikidata is community-edited: smaller brands may be missing, and ownership data can lag behind recent deals. The curated list always takes priority.
-- OCR works best on flat, well-lit, in-focus text in English.
+- OCR works best on flat, well-lit, in-focus text in English. Photo recognition (with a key) handles logos, other scripts and curved packs much better.
+- AI recognition can be wrong; that's why its answer is cross-checked and shown with its source.
 - Joint ventures and partial stakes are simplified to the controlling owner.

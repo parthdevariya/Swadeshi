@@ -1,9 +1,9 @@
 // Offline-first cache for the app shell. Product lookups always go to the network.
-const CACHE = 'swadeshi-v4';
+const CACHE = 'swadeshi-v5';
 const SHELL = [
   './', 'index.html', 'css/styles.css', 'manifest.webmanifest', 'icons/icon.svg',
   'js/app.js', 'js/brands.js', 'js/barcode.js', 'js/classifier.js', 'js/textParser.js',
-  'js/lookup.js', 'js/scanner.js', 'js/ocr.js', 'js/webLookup.js', 'js/learnedBrands.js', 'js/install.js',
+  'js/lookup.js', 'js/scanner.js', 'js/ocr.js', 'js/webLookup.js', 'js/learnedBrands.js', 'js/install.js', 'js/imageAI.js', 'js/settings.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png',
 ];
 

@@ -329,7 +329,7 @@ ul.learned a { color: var(--green); }
   border-color: var(--green);
   color: #fff;
 }
-.install-sheet {
+.sheet {
   position: fixed;
   inset: 0;
   z-index: 50;
@@ -339,8 +339,8 @@ ul.learned a { color: var(--green); }
   background: rgba(0, 0, 0, 0);
   transition: background 0.25s;
 }
-.install-sheet.open { background: rgba(0, 0, 0, 0.45); }
-.install-card {
+.sheet.open { background: rgba(0, 0, 0, 0.45); }
+.sheet-card {
   width: 100%;
   max-width: 480px;
   background: var(--card);
@@ -351,8 +351,8 @@ ul.learned a { color: var(--green); }
   transform: translateY(100%);
   transition: transform 0.25s ease-out;
 }
-.install-sheet.open .install-card { transform: none; }
-@media (prefers-reduced-motion: reduce) { .install-card, .install-sheet { transition: none; } }
+.sheet.open .sheet-card { transform: none; }
+@media (prefers-reduced-motion: reduce) { .sheet-card, .sheet { transition: none; } }
 .install-head { display: flex; gap: 14px; align-items: center; }
 .install-head img { border-radius: 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15); }
 .install-head h2 { margin: 0; font-size: 1.15rem; }
@@ -392,3 +392,63 @@ ul.learned a { color: var(--green); }
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   max-width: calc(100% - 32px);
 }
+
+/* ---------- Settings ---------- */
+.header-row h1 { flex: 0 1 auto; }
+.settings-btn {
+  min-height: 36px;
+  width: 36px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 1.05rem;
+}
+.settings-card { max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
+.settings-top { display: flex; justify-content: space-between; align-items: center; }
+.settings-top h2 { margin: 0; font-size: 1.2rem; }
+.settings-card h3 { margin: 16px 0 4px; font-size: 1rem; }
+.settings-card .hint { margin-top: 4px; }
+.providers { border: 0; padding: 0; margin: 12px 0 0; display: grid; gap: 8px; }
+.providers label {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 0.93rem;
+  cursor: pointer;
+}
+.providers label:has(input:checked) { border-color: var(--green); background: color-mix(in srgb, var(--green) 8%, var(--card)); }
+.providers input { margin-top: 3px; accent-color: var(--green); }
+.providers small { color: var(--muted); }
+.tag { font-style: normal; font-size: 0.72rem; padding: 1px 6px; border-radius: 999px; background: var(--green); color: #fff; white-space: nowrap; }
+.tag.alt { background: #4285f4; }
+.key-block { margin-top: 16px; }
+.key-block[hidden] { display: none; }
+.key-row { display: flex; gap: 6px; margin-top: 6px; }
+.key-row input, .guide input {
+  flex: 1;
+  min-width: 0;
+  font: 0.95rem ui-monospace, monospace;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  width: 100%;
+}
+.key-row button { padding: 0 12px; }
+.key-status { margin: 6px 0 0; font-size: 0.88rem; min-height: 1.2em; }
+.key-status.ok { color: var(--good); }
+.key-status.bad { color: var(--bad); }
+.guide { margin-top: 8px; font-size: 0.9rem; }
+.guide summary { cursor: pointer; color: var(--green); font-weight: 600; }
+.guide ol { padding-left: 20px; margin: 8px 0; }
+.guide li { margin: 4px 0; }
+.guide p { margin: 6px 0; }
+.guide a { color: var(--green); }
+.guide code { font-size: 0.85em; word-break: break-all; }
+.settings-actions { display: flex; gap: 10px; margin-top: 20px; position: sticky; bottom: 0; background: var(--card); padding-top: 8px; }
+.settings-actions button { flex: 1; min-height: 48px; }
+.ai-tip { margin-top: 12px; font-size: 0.9rem; color: var(--muted); }
+.ai-tip button { min-height: auto; padding: 0; border: 0; background: none; color: var(--green); text-decoration: underline; font: inherit; }

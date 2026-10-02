@@ -1,6 +1,8 @@
 import { BRANDS } from './brands.js';
 import { classify, guessCategory } from './classifier.js';
-import { cleanCode } from './barcode.js';
+import { cleanCode, isValidGtin } from './barcode.js';
+import { identifyProduct, imageAIEnabled, testGeminiKey, testVisionKey } from './imageAI.js';
+import { loadSettings, saveSettings } from './settings.js';
 import { lookupBarcode } from './lookup.js';
 import { Camera, createBarcodeReader, fileToCanvas } from './scanner.js';
 import { readText, warmUpOcr } from './ocr.js';
@@ -16,6 +18,7 @@ const camera = new Camera($('#video'));
 let reader = null;
 let current = {};
 let runId = 0; // bumps on every new scan so stale async work is discarded
+let settings = loadSettings();
 let refining = null; // { barcode, online } when the user is adding a label photo to a barcode scan
 
 // ====================================================================
@@ -102,37 +105,70 @@ $('#photo-file').addEventListener('change', async (e) => {
 async function analyzeImage(canvas) {
   const id = ++runId;
   resetResult();
-  const steps = showSteps(['Looking for a barcode', 'Reading the text', 'Checking the brand', 'Searching the web']);
-  steps.active(0);
+  const useAI = imageAIEnabled(settings);
+  const labels = ['Looking for a barcode', 'Reading the text', 'Checking the brand', 'Searching the web'];
+  if (useAI) labels.splice(1, 0, `Recognising the product (${providerName()})`);
+  const steps = showSteps(labels);
+  const S = useAI ? { code: 0, ai: 1, text: 2, brand: 3 } : { code: 0, text: 1, brand: 2 };
+
+  // Start the cloud recognition right away; it runs alongside the on-device work.
+  if (useAI) steps.active(S.ai);
+  const aiJob = useAI ? identifyProduct(toJpegBase64(canvas), settings) : null;
+
+  steps.active(S.code);
   let barcode = null;
   try {
     reader ??= await createBarcodeReader();
     barcode = await reader.detect(canvas);
   } catch {
-    // Barcode library unavailable — the text alone may be enough.
+    // Barcode library unavailable — the picture and text may be enough.
   }
   if (id !== runId) return;
-  steps.done(0, barcode ? `Barcode ${barcode}` : 'No barcode — using the text');
+  steps.done(S.code, barcode ? `Barcode ${barcode}` : 'No barcode — using the picture');
   current = { barcode: barcode ? cleanCode(barcode) : refining?.barcode };
-  const online = barcode && barcode !== refining?.barcode
-    ? lookupBarcode(current.barcode)
-    : Promise.resolve(refining?.online ?? null);
+  const lookupOnline = (code) => (code && code !== refining?.barcode ? lookupBarcode(code) : Promise.resolve(refining?.online ?? null));
+  let online = lookupOnline(current.barcode);
   refining = null;
 
-  steps.active(1);
-  let ocr = { text: '', headline: null };
-  try {
-    ocr = await readText(canvas, (pct) => steps.progress(1, pct));
-  } catch (err) {
-    steps.fail(1, err.message);
-  }
-  if (id !== runId) return;
-  current.labelText = ocr.text;
-  current.headline = ocr.headline || undefined;
-  if (ocr.text.trim()) steps.done(1, ocr.headline ? `Read “${ocr.headline}”` : 'Text read');
-  else steps.fail(1, 'Couldn’t read any text — try closer, with more light');
+  steps.active(S.text);
+  const ocrJob = readText(canvas, (pct) => steps.progress(S.text, pct))
+    .catch((err) => ({ text: '', headline: null, error: err.message }));
 
-  await finishAnalysis(id, steps, online, 2);
+  if (aiJob) {
+    const { result, errors } = await aiJob;
+    if (id !== runId) return;
+    current.ai = result;
+    if (result) {
+      steps.done(S.ai, `Looks like: ${result.productName || result.brand || 'an unbranded product'}`);
+      // The model may read a barcode the scanner missed.
+      if (!current.barcode && result.barcode && isValidGtin(result.barcode)) {
+        current.barcode = result.barcode;
+        online = lookupOnline(result.barcode);
+      }
+    } else {
+      steps.fail(S.ai, errors[0] || 'Couldn’t recognise the product');
+    }
+  }
+
+  const ocr = await ocrJob;
+  if (id !== runId) return;
+  current.labelText = [ocr.text, current.ai?.text].filter(Boolean).join('\n');
+  current.headline = ocr.headline || undefined;
+  if (current.labelText.trim()) steps.done(S.text, ocr.headline ? `Read “${ocr.headline}”` : 'Text read');
+  else if (current.ai?.brand) steps.done(S.text, 'No readable text — recognised from the picture instead');
+  else steps.fail(S.text, ocr.error || 'Couldn’t read any text — try closer, with more light');
+
+  await finishAnalysis(id, steps, online, S.brand);
+}
+
+/** Downscaled JPEG for upload: enough detail to recognise a pack, small enough to send fast. */
+function toJpegBase64(canvas, maxSide = 1024) {
+  const scale = Math.min(1, maxSide / Math.max(canvas.width, canvas.height));
+  const c = document.createElement('canvas');
+  c.width = Math.round(canvas.width * scale);
+  c.height = Math.round(canvas.height * scale);
+  c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.85).split(',')[1];
 }
 
 async function analyze(input) {
@@ -189,6 +225,7 @@ const NOT_A_BRAND = /\b(net|wt|weight|ingredients?|origin|mfd|mfg|manufactured|m
 function rememberBrand(result) {
   const aliases = [];
   if (current.brandQuery) aliases.push(current.brandQuery);
+  if (current.ai?.brand) aliases.push(current.ai.brand);
   if (current.online?.brands) aliases.push(...current.online.brands.split(','));
   // The big text on the pack (e.g. a product line name) points to this owner next time.
   if (current.headline && !NOT_A_BRAND.test(current.headline)) aliases.push(current.headline);
@@ -228,11 +265,13 @@ function renderLearned(list) {
 function candidateNames() {
   const names = [];
   if (current.brandQuery) names.push(current.brandQuery);
+  if (current.ai) names.push(current.ai.brandOwner, current.ai.manufacturer, current.ai.brand);
   if (current.online?.brandOwner) names.push(current.online.brandOwner);
   if (current.online?.brands) names.push(...current.online.brands.split(',').map((s) => s.trim()));
   if (current.labelText) names.push(...extractCompanyNames(current.labelText));
   if (current.headline) names.push(current.headline);
-  return names.filter(Boolean).slice(0, 5);
+  if (current.ai?.candidates) names.push(...current.ai.candidates);
+  return names.filter(Boolean).slice(0, 6);
 }
 
 function cameraErrorMessage(err) {
@@ -322,7 +361,7 @@ function el(tag, attrs = {}, ...children) {
 
 function productTitle(r) {
   const known = r.brand?.source === 'web' || r.brand?.learned ? null : r.brand?.name;
-  return current.online?.productName || known || current.brandQuery || current.headline || r.brand?.name
+  return current.online?.productName || current.ai?.productName || known || current.brandQuery || current.headline || r.brand?.name
     || (current.barcode ? `Barcode ${current.barcode}` : 'Scanned product');
 }
 
@@ -384,6 +423,11 @@ function render(r) {
 
       r.manufacture == null && !current.labelText && current.barcode
         ? el('button', { type: 'button', class: 'refine', onclick: readLabelToo }, '🏷️ Not sure yet — photograph the label to confirm where it was made')
+        : null,
+
+      current.labelText !== undefined && !imageAIEnabled(settings)
+        ? el('p', { class: 'ai-tip' }, '💡 Want the app to recognise products from the picture itself? ',
+          el('button', { type: 'button', onclick: openSettings }, 'Add a free Google key in Settings'))
         : null,
 
       el('div', { class: 'result-actions' },
@@ -497,6 +541,109 @@ function toast(msg) {
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => (t.hidden = true), 3500);
 }
+
+// ====================================================================
+// Settings (image recognition API keys)
+// ====================================================================
+
+function providerName(s = settings) {
+  return { gemini: 'Gemini', vision: 'Cloud Vision', both: 'Gemini + Vision' }[s.provider] || 'AI';
+}
+
+const settingsSheet = $('#settings-sheet');
+const form = $('#settings-form');
+
+function openSheet(sheet) {
+  sheet.hidden = false;
+  requestAnimationFrame(() => sheet.classList.add('open'));
+}
+
+function closeSheet(sheet) {
+  sheet.classList.remove('open');
+  setTimeout(() => (sheet.hidden = true), 250);
+}
+
+function formValues() {
+  return {
+    provider: form.querySelector('input[name="provider"]:checked')?.value || 'off',
+    geminiKey: $('#gemini-key').value,
+    geminiModel: $('#gemini-model').value,
+    visionKey: $('#vision-key').value,
+  };
+}
+
+function syncKeyBlocks() {
+  const p = formValues().provider;
+  form.querySelector('[data-for="gemini"]').hidden = !['gemini', 'both'].includes(p);
+  form.querySelector('[data-for="vision"]').hidden = !['vision', 'both'].includes(p);
+}
+
+function openSettings() {
+  form.querySelector(`input[name="provider"][value="${settings.provider}"]`).checked = true;
+  $('#gemini-key').value = settings.geminiKey;
+  $('#gemini-model').value = settings.geminiModel;
+  $('#vision-key').value = settings.visionKey;
+  form.querySelectorAll('.key-status').forEach((el) => { el.textContent = ''; el.className = 'key-status'; });
+  form.querySelectorAll('.site-origin').forEach((el) => (el.textContent = `${location.origin}/*`));
+  syncKeyBlocks();
+  openSheet(settingsSheet);
+}
+
+$('#settings-btn').addEventListener('click', openSettings);
+form.querySelectorAll('input[name="provider"]').forEach((r) => r.addEventListener('change', syncKeyBlocks));
+form.querySelector('[data-close]').addEventListener('click', () => closeSheet(settingsSheet));
+settingsSheet.addEventListener('click', (e) => { if (e.target === settingsSheet) closeSheet(settingsSheet); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !settingsSheet.hidden) closeSheet(settingsSheet); });
+
+form.querySelectorAll('.reveal').forEach((btn) => btn.addEventListener('click', () => {
+  const input = $(`#${btn.dataset.target}`);
+  input.type = input.type === 'password' ? 'text' : 'password';
+}));
+
+form.querySelectorAll('[data-test]').forEach((btn) => btn.addEventListener('click', async () => {
+  const which = btn.dataset.test;
+  const v = formValues();
+  const key = which === 'gemini' ? v.geminiKey.trim() : v.visionKey.trim();
+  const status = $(`#${which}-status`);
+  if (!key) {
+    status.textContent = 'Paste a key first.';
+    status.className = 'key-status bad';
+    return;
+  }
+  status.textContent = 'Testing…';
+  status.className = 'key-status';
+  btn.disabled = true;
+  try {
+    status.textContent = `✅ ${which === 'gemini' ? await testGeminiKey(key, v.geminiModel.trim()) : await testVisionKey(key)}`;
+    status.className = 'key-status ok';
+  } catch (err) {
+    status.textContent = `❌ ${err.message}`;
+    status.className = 'key-status bad';
+  } finally {
+    btn.disabled = false;
+  }
+}));
+
+form.querySelector('[data-clear]').addEventListener('click', () => {
+  $('#gemini-key').value = '';
+  $('#vision-key').value = '';
+  form.querySelector('input[name="provider"][value="off"]').checked = true;
+  syncKeyBlocks();
+});
+
+form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const v = formValues();
+  if (v.provider !== 'off' && !imageAIEnabled({ ...v, geminiKey: v.geminiKey.trim(), visionKey: v.visionKey.trim() })) {
+    const which = v.provider === 'vision' ? 'vision' : 'gemini';
+    $(`#${which}-status`).textContent = 'Add a key to turn this on, or choose Off.';
+    $(`#${which}-status`).className = 'key-status bad';
+    return;
+  }
+  settings = saveSettings(v);
+  closeSheet(settingsSheet);
+  toast(imageAIEnabled(settings) ? `✅ Photo recognition on (${providerName()})` : 'Saved — photo recognition is off');
+});
 
 setupInstall({
   sheet: $('#install-sheet'),
