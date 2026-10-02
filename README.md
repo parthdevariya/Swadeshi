@@ -35,6 +35,8 @@ When the brand is foreign-owned, the app suggests Indian-owned alternatives in t
 - ⚡ OCR engine pre-loads while you aim, so the first label read is quick; step-by-step progress while it works
 - 🏷️ Editable recognised text with re-check
 - 🌐 Free web research (Wikidata ownership chain + Wikipedia background)
+- 💾 Self-growing brand list: unknown brands are researched once, then saved on the device and recognised instantly next time (also from the pack's big brand text)
+- 📤 "Suggest for everyone" opens a pre-filled GitHub issue with the ready-to-paste `brands.js` line, so the shared list can grow too
 - 🖼️ Pick a photo from the gallery instead of using the camera
 - 🔎 Brand search with autocomplete
 - 🕘 Recent-checks history (stored only on the device)
@@ -64,6 +66,7 @@ js/textParser.js      Origin / manufacturer / brand extraction from text (pure, 
 js/barcode.js         Check-digit validation and GS1 prefix lookup (pure, tested)
 js/lookup.js          Open Food Facts lookups
 js/webLookup.js       Wikidata ownership chain + Wikipedia summary (pure, tested)
+js/learnedBrands.js   Brands learned from the web, saved on the device (tested)
 js/scanner.js         Camera stream, live barcode detection, frame capture
 js/ocr.js             On-device label OCR (Tesseract.js, sparse-text mode)
 sw.js                 Offline cache
@@ -71,6 +74,12 @@ tests/                node:test unit tests
 ```
 
 ## Contributing brand data
+
+### From the app
+
+When the app learns a brand from Wikidata it shows **📤 Suggest for everyone**. That opens a GitHub issue (label `brand-suggestion`) with the owner, country, Wikidata link and the exact line to paste into `js/brands.js`. A maintainer checks it and adds it to the curated list, which then ships to every user. Saved brands can be reviewed or removed under **My saved brands**.
+
+### By hand
 
 Ownership changes through acquisitions, so the brand list needs care:
 
@@ -84,6 +93,7 @@ Ownership changes through acquisitions, so the brand list needs care:
 
 - Results are guidance, not certification. Always check the "Country of Origin" printed on the pack (mandatory on packaged goods sold in India).
 - Coverage of Indian products in Open Food Facts is partial; scanning the label fills the gap.
+- Saved brands live on each phone (browser storage); there is no shared server, so they reach other users only through the curated list.
 - Wikidata is community-edited: smaller brands may be missing, and ownership data can lag behind recent deals. The curated list always takes priority.
 - OCR works best on flat, well-lit, in-focus text in English.
 - Joint ventures and partial stakes are simplified to the controlling owner.

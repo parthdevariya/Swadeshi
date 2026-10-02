@@ -1,10 +1,11 @@
 import { BRANDS } from './brands.js';
-import { classify } from './classifier.js';
+import { classify, guessCategory } from './classifier.js';
 import { cleanCode } from './barcode.js';
 import { lookupBarcode } from './lookup.js';
 import { Camera, createBarcodeReader, fileToCanvas } from './scanner.js';
 import { readText, warmUpOcr } from './ocr.js';
-import { extractCompanyNames } from './textParser.js';
+import { extractCompanyNames, setLearnedBrands } from './textParser.js';
+import { forgetBrand, learnBrand, loadLearned, makeLearnedEntry, suggestionUrl } from './learnedBrands.js';
 import { brandBackground, researchFirst, webSearchUrl } from './webLookup.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -149,7 +150,9 @@ async function finishAnalysis(id, steps, onlinePromise, first) {
   current.online = await onlinePromise;
   if (id !== runId) return;
   let result = classify(current);
-  steps.done(first, current.online ? `Found in ${current.online.source}` : result.brand ? `Known brand: ${result.brand.name}` : 'Not in our list yet');
+  steps.done(first, current.online ? `Found in ${current.online.source}`
+    : result.brand?.learned ? `Saved brand: ${result.brand.name}`
+      : result.brand ? `Known brand: ${result.brand.name}` : 'Not in our list yet');
   render(result);
 
   // ---- Web research (free: Wikidata + Wikipedia) ----
@@ -163,14 +166,61 @@ async function finishAnalysis(id, steps, onlinePromise, first) {
     current.web = await researchFirst(candidateNames());
     if (id !== runId) return;
     result = classify(current);
+    if (result.brand?.source === 'web') rememberBrand(result);
   }
   current.wiki = result.brand
     ? await brandBackground({ wikipediaTitle: current.web?.wikipediaTitle, brand: result.brand.name, owner: result.brand.owner })
     : null;
   if (id !== runId) return;
-  steps.done(first + 1, current.web ? `Wikidata: owned by ${current.web.owner}` : current.wiki ? 'Found background on Wikipedia' : 'Nothing more found online');
+  steps.done(first + 1, current.learned ? `Learned ${current.learned.name} — added to your brand list`
+    : current.web ? `Wikidata: owned by ${current.web.owner}` : current.wiki ? 'Found background on Wikipedia' : 'Nothing more found online');
   render(result);
   saveHistory(result);
+}
+
+// ====================================================================
+// Learned brands (saved on this device)
+// ====================================================================
+
+const NOT_A_BRAND = /\b(net|wt|weight|ingredients?|origin|mfd|mfg|manufactured|marketed|packed|best before|mrp|nutrition|country|batch|veg|contains|price|use by|expiry)\b|\d/i;
+
+/** Save a brand found on the web so the next scan is instant and offline. */
+function rememberBrand(result) {
+  const aliases = [];
+  if (current.brandQuery) aliases.push(current.brandQuery);
+  if (current.online?.brands) aliases.push(...current.online.brands.split(','));
+  // The big text on the pack (e.g. a product line name) points to this owner next time.
+  if (current.headline && !NOT_A_BRAND.test(current.headline)) aliases.push(current.headline);
+  const entry = makeLearnedEntry(current.web, {
+    aliases,
+    category: guessCategory(`${current.online?.categories || ''} ${current.web.description || ''}`),
+  });
+  refreshLearned(learnBrand(entry));
+  current.learned = entry;
+  result.brand = { ...result.brand, ...entry, source: 'web' };
+}
+
+function refreshLearned(list = loadLearned()) {
+  setLearnedBrands(list);
+  fillBrandSuggestions(list);
+  renderLearned(list);
+}
+
+function forget(name) {
+  refreshLearned(forgetBrand(name));
+}
+
+function renderLearned(list) {
+  $('#learned-section').hidden = !list.length;
+  $('#learned-count').textContent = String(list.length);
+  $('#learned').replaceChildren(...list.map((b) =>
+    el('li', {},
+      el('div', { class: 'learned-info' },
+        el('strong', {}, `${b.indian ? '🇮🇳' : '🌍'} ${b.name}`),
+        el('span', {}, b.owner === b.name ? ` — ${b.country}` : ` — ${b.owner} (${b.country})`)),
+      el('div', { class: 'learned-actions' },
+        el('a', { href: suggestionUrl(b), target: '_blank', rel: 'noopener', title: 'Propose for the shared list on GitHub' }, 'Suggest'),
+        el('button', { type: 'button', class: 'link', onclick: () => forget(b.name) }, 'Remove')))));
 }
 
 /** Names worth researching, most reliable first. */
@@ -195,9 +245,11 @@ function cameraErrorMessage(err) {
 // Brand search
 // ====================================================================
 
-$('#brand-list').append(
-  ...[...new Set(BRANDS.map((b) => b.name))].sort().map((n) => Object.assign(document.createElement('option'), { value: n })),
-);
+/** Autocomplete: curated brands plus the ones learned on this device. */
+function fillBrandSuggestions(learned) {
+  const names = new Set([...BRANDS.map((b) => b.name), ...learned.flatMap((b) => [b.name, ...(b.aliases || [])])]);
+  $('#brand-list').replaceChildren(...[...names].sort().map((n) => Object.assign(document.createElement('option'), { value: n })));
+}
 
 $('#search-form').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -268,7 +320,7 @@ function el(tag, attrs = {}, ...children) {
 }
 
 function productTitle(r) {
-  const known = r.brand?.source === 'web' ? null : r.brand?.name;
+  const known = r.brand?.source === 'web' || r.brand?.learned ? null : r.brand?.name;
   return current.online?.productName || known || current.brandQuery || current.headline || r.brand?.name
     || (current.barcode ? `Barcode ${current.barcode}` : 'Scanned product');
 }
@@ -290,12 +342,23 @@ function render(r) {
         online?.image ? el('img', { src: online.image, alt: '' }) : null,
         el('div', {},
           el('div', { class: 'name' }, productTitle(r)),
-          r.brand ? el('div', { class: 'meta' }, `${r.brand.name} · owned by ${r.brand.owner}${r.brand.country ? ` (${r.brand.country})` : ''}`) : null,
+          r.brand ? el('div', { class: 'meta' }, r.brand.owner === r.brand.name
+            ? `${r.brand.name} · ${r.brand.country}`
+            : `${r.brand.name} · owned by ${r.brand.owner}${r.brand.country ? ` (${r.brand.country})` : ''}`) : null,
           r.confidence !== 'none' ? el('span', { class: 'pill' }, `Confidence: ${r.confidence}`) : null,
         ),
       ),
 
       r.evidence.length ? [el('h3', {}, 'Why'), el('ul', { class: 'evidence' }, r.evidence.map((e) => el('li', { class: e.direction }, e.text)))] : null,
+
+      r.brand?.learned ? el('div', { class: 'learned-note' },
+        el('p', {}, current.learned
+          ? `➕ ${r.brand.name} wasn’t in our list, so we looked it up and saved it on this device. Next time it’s instant — even offline.`
+          : `💾 ${r.brand.name} is in your saved brands (learned from Wikidata).`),
+        el('div', { class: 'learned-actions' },
+          el('a', { class: 'btn', href: suggestionUrl(r.brand), target: '_blank', rel: 'noopener' }, '📤 Suggest for everyone'),
+          el('button', { type: 'button', onclick: () => { forget(r.brand.name); current.learned = null; render(classify(current)); } }, 'Not right? Remove')),
+      ) : null,
 
       r.alternatives.length ? [
         el('h3', {}, 'Swadeshi alternatives'),
@@ -411,6 +474,7 @@ $('#clear-history').addEventListener('click', () => {
 });
 
 renderHistory();
+refreshLearned();
 
 // Returning users who already granted camera access go straight to scanning.
 navigator.permissions?.query({ name: 'camera' })

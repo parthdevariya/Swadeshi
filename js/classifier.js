@@ -87,8 +87,16 @@ export function classify(input = {}) {
   let ownership = null; // 'indian' | 'foreign' | null
   if (brand) {
     ownership = brand.indian ? 'indian' : 'foreign';
-    add(ownership === 'indian' ? 'india' : 'foreign', 3,
-      `${brand.name} is owned by ${brand.owner} (${brand.country}).`);
+    if (brand.learned) {
+      const when = brand.addedAt ? ` on ${new Date(brand.addedAt).toLocaleDateString()}` : '';
+      const who = brand.owner === brand.name
+        ? `${brand.name} is a company based in ${brand.country}`
+        : `${brand.name} is owned by ${brand.owner} (${brand.country})`;
+      add(ownership === 'indian' ? 'india' : 'foreign', 2, `${who} — saved from Wikidata${when}.`);
+    } else {
+      add(ownership === 'indian' ? 'india' : 'foreign', 3,
+        `${brand.name} is owned by ${brand.owner} (${brand.country}).`);
+    }
     if (brand.note) add('info', 0, brand.note);
   } else if (input.web?.ownerCountry) {
     // Not in our curated list — fall back to what Wikidata says.
@@ -169,18 +177,21 @@ export function classify(input = {}) {
     manufacture,
     barcode,
     evidence,
-    alternatives: ownership === 'indian' ? [] : suggestAlternatives(brand?.category ?? guessCategory(input)),
+    alternatives: ownership === 'indian' ? [] : suggestAlternatives(brand?.category ?? guessCategory(input.online?.categories)),
   };
 }
 
-function guessCategory(input) {
-  const cat = (input.online?.categories || '').toLowerCase();
+/** Map free text (product categories, a company description) to one of our categories. */
+export function guessCategory(text) {
+  const cat = String(text || '').toLowerCase();
   const map = [
     [/biscuit|cookie/, 'biscuits'], [/chocolate|confection|candy/, 'chocolates'], [/chip|snack|namkeen/, 'snacks'],
-    [/noodle|pasta|ketchup|sauce|cereal/, 'packaged-food'], [/tea|coffee/, 'tea-coffee'], [/water/, 'water'],
+    [/noodle|pasta|ketchup|sauce|cereal/, 'packaged-food'], [/\btea\b|coffee/, 'tea-coffee'], [/water/, 'water'],
     [/beverage|drink|juice|soda/, 'beverages'], [/milk|dairy|cheese|yogurt|ice cream|butter|ghee/, 'dairy'],
-    [/spice|masala/, 'spices'], [/shampoo|soap|cosmetic|toothpaste|cream|hair/, 'personal-care'],
-    [/detergent|clean/, 'home-care'],
+    [/spice|masala/, 'spices'], [/shampoo|soap|cosmetic|toothpaste|cream|hair|personal care/, 'personal-care'],
+    [/detergent|clean/, 'home-care'], [/electronic|smartphone|audio|headphone/, 'electronics'],
+    [/appliance/, 'appliances'], [/footwear|shoe/, 'footwear'], [/apparel|clothing|fashion/, 'apparel'],
+    [/automo|motorcycle|scooter|vehicle/, 'automobiles'], [/paint/, 'paints'], [/food/, 'packaged-food'],
   ];
   return map.find(([re]) => re.test(cat))?.[1] ?? null;
 }

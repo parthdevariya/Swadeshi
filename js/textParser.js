@@ -90,13 +90,43 @@ function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-const BRAND_MATCHERS = BRANDS.map((b) => {
-  const n = normalizeText(b.name);
-  return { brand: b, key: n, re: new RegExp(`(^|[^a-z0-9])${escapeRe(n)}($|[^a-z0-9])`) };
-}).sort((a, b) => b.key.length - a.key.length);
+function buildMatchers(entries) {
+  return entries
+    .map(({ brand, name }) => {
+      const key = normalizeText(name);
+      return { brand, key, re: new RegExp(`(^|[^a-z0-9])${escapeRe(key)}($|[^a-z0-9])`) };
+    })
+    .sort((a, b) => b.key.length - a.key.length);
+}
+
+const BRAND_MATCHERS = buildMatchers(BRANDS.map((b) => ({ brand: b, name: b.name })));
+const CURATED_KEYS = new Set(BRAND_MATCHERS.map((m) => m.key));
+let learnedMatchers = [];
 
 /**
- * Find known brands mentioned in text.
+ * Register brands learned from the web (see learnedBrands.js). They are
+ * matched only after the curated list, and never override a curated name.
+ */
+export function setLearnedBrands(list) {
+  learnedMatchers = buildMatchers(
+    (list || []).flatMap((b) => [b.name, ...(b.aliases || [])].map((name) => ({ brand: b, name })))
+      .filter(({ name }) => {
+        const k = normalizeText(name);
+        return k.length >= 3 && !CURATED_KEYS.has(k);
+      }),
+  );
+}
+
+function matchIn(matchers, t, structured) {
+  for (const m of matchers) {
+    if (!structured && AMBIGUOUS_NAMES.has(m.key)) continue;
+    if (m.re.test(t)) return m.brand;
+  }
+  return null;
+}
+
+/**
+ * Find known brands mentioned in text, curated ones first.
  * `structured: true` means the text is a brand field (e.g. from a product
  * database), so even ambiguous everyday words are trusted.
  */
@@ -112,6 +142,8 @@ export function findBrands(text, { structured = false } = {}) {
       t = t.replace(m.re, '$1 $2');
     }
   }
+  const learned = matchIn(learnedMatchers, t, structured);
+  if (learned) hits.push(learned);
   return hits;
 }
 

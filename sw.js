@@ -1,9 +1,9 @@
 // Offline-first cache for the app shell. Product lookups always go to the network.
-const CACHE = 'swadeshi-v2';
+const CACHE = 'swadeshi-v3';
 const SHELL = [
   './', 'index.html', 'css/styles.css', 'manifest.webmanifest', 'icons/icon.svg',
   'js/app.js', 'js/brands.js', 'js/barcode.js', 'js/classifier.js', 'js/textParser.js',
-  'js/lookup.js', 'js/scanner.js', 'js/ocr.js', 'js/webLookup.js',
+  'js/lookup.js', 'js/scanner.js', 'js/ocr.js', 'js/webLookup.js', 'js/learnedBrands.js',
 ];
 
 self.addEventListener('install', (e) => {
