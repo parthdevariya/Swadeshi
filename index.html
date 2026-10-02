@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Swadeshi Scanner</title>
+  <meta name="description" content="Scan a product's barcode or label to find out whether it is Indian-owned and made in India.">
+  <meta name="theme-color" content="#ff9933">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon.svg">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="flag-stripe" aria-hidden="true"></div>
+    <h1>Swadeshi Scanner</h1>
+    <p class="tagline">Is it Indian? Scan and find out.</p>
+  </header>
+
+  <main>
+    <nav class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-tab="barcode" id="tab-barcode">📷 Barcode</button>
+      <button role="tab" aria-selected="false" data-tab="label" id="tab-label">🏷️ Label</button>
+      <button role="tab" aria-selected="false" data-tab="search" id="tab-search">🔎 Brand</button>
+    </nav>
+
+    <!-- Barcode -->
+    <section class="panel" data-panel="barcode" role="tabpanel" aria-labelledby="tab-barcode">
+      <div class="viewfinder" id="viewfinder" hidden>
+        <video id="video" playsinline muted></video>
+        <div class="scan-line" aria-hidden="true"></div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="start-scan">Start camera</button>
+        <button id="stop-scan" hidden>Stop</button>
+        <label class="file-btn">Upload photo<input type="file" accept="image/*" id="barcode-file" hidden></label>
+      </div>
+      <form id="manual-form" class="inline-form">
+        <input id="manual-code" inputmode="numeric" pattern="[0-9 ]{8,14}" placeholder="Or type the barcode digits" aria-label="Barcode number">
+        <button type="submit">Check</button>
+      </form>
+      <p class="hint">Barcodes beginning with <b>890</b> are registered with GS1 India.</p>
+    </section>
+
+    <!-- Label OCR -->
+    <section class="panel" data-panel="label" role="tabpanel" aria-labelledby="tab-label" hidden>
+      <p class="hint">Take a clear photo of the back of the pack — the part with
+        <b>“Manufactured by”</b>, <b>“Marketed by”</b> or <b>“Country of Origin”</b>.</p>
+      <div class="actions">
+        <label class="file-btn primary">Take / choose photo<input type="file" accept="image/*" capture="environment" id="label-file" hidden></label>
+      </div>
+      <div class="progress" id="ocr-progress" hidden><div class="bar"></div><span>Reading label…</span></div>
+      <details id="ocr-details" hidden>
+        <summary>Text we read (edit and re-check if needed)</summary>
+        <textarea id="ocr-text" rows="6"></textarea>
+        <button id="recheck-text">Re-check text</button>
+      </details>
+    </section>
+
+    <!-- Brand search -->
+    <section class="panel" data-panel="search" role="tabpanel" aria-labelledby="tab-search" hidden>
+      <form id="search-form" class="inline-form">
+        <input id="brand-input" list="brand-list" placeholder="e.g. Maggi, Amul, Thums Up" aria-label="Brand name" autocomplete="off">
+        <button type="submit" class="primary">Check</button>
+      </form>
+      <datalist id="brand-list"></datalist>
+    </section>
+
+    <section id="status" class="status" role="status" aria-live="polite" hidden></section>
+
+    <section id="result" class="result" aria-live="polite" hidden></section>
+
+    <section class="history" id="history-section" hidden>
+      <div class="history-head">
+        <h2>Recent checks</h2>
+        <button class="link" id="clear-history">Clear</button>
+      </div>
+      <ul id="history"></ul>
+    </section>
+  </main>
+
+  <footer>
+    <p>Results combine a curated brand-ownership list, barcode prefixes, label text and
+      <a href="https://openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a>.
+      Ownership changes over time — always double-check the “Country of Origin” on the pack.</p>
+  </footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

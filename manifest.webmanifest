@@ -1,0 +1,13 @@
+{
+  "name": "Swadeshi Scanner",
+  "short_name": "Swadeshi",
+  "description": "Scan a product's barcode or label to find out whether it is Indian-owned and made in India.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f5f0",
+  "theme_color": "#ff9933",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
